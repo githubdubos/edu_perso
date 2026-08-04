@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jira Ticket UI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="brand">
+        <p class="brand-name">Jira Ticket UI</p>
+        <h1>Create a ticket</h1>
+        <p class="lede">Enter a title and description, then submit to open an issue in your configured Jira project.</p>
+      </header>
+
+      <form id="ticket-form" class="form" novalidate>
+        <label class="field">
+          <span>Title</span>
+          <input
+            id="title"
+            name="title"
+            type="text"
+            maxlength="255"
+            required
+            autocomplete="off"
+            placeholder="Short summary of the work"
+          />
+        </label>
+
+        <label class="field">
+          <span>Description</span>
+          <textarea
+            id="description"
+            name="description"
+            rows="6"
+            maxlength="32000"
+            placeholder="Details, context, and acceptance notes"
+          ></textarea>
+        </label>
+
+        <div class="actions">
+          <button type="submit" id="submit-btn">Create ticket</button>
+        </div>
+      </form>
+
+      <div id="feedback" class="feedback" hidden role="status" aria-live="polite"></div>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
