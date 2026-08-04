@@ -1,0 +1,24 @@
+---
+description: Require English for code, comments, docs, and commit messages
+alwaysApply: true
+---
+
+# Language: English
+
+All project artifacts must be written in English.
+
+- Source code identifiers (variables, functions, classes, files)
+- Comments and docstrings
+- Documentation (README, rules, guides)
+- Commit messages and pull request descriptions
+- Error messages and user-facing strings unless a locale/i18n layer intentionally provides translations
+
+```text
+# ❌ BAD
+# Ajoute un utilisateur à la base
+
+# ✅ GOOD
+# Add a user to the database
+```
+
+When the user writes in another language, reply in that language if helpful, but keep **code and committed docs in English**.

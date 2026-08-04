@@ -1,0 +1,33 @@
+---
+description: Commit and push when a feature/fix is done or before switching topics
+alwaysApply: true
+---
+
+# Commit and push checkpoints
+
+Never leave finished or abandoned work only in the working tree.
+
+Commit **and** push when any of these is true:
+
+1. A feature is complete
+2. A bug fix is complete
+3. You are about to switch topics or start unrelated work
+4. A session ends with meaningful uncommitted changes
+
+Guidelines:
+
+- Prefer small, focused commits with clear English messages (why over what)
+- Push the current branch to origin after committing (`git push -u origin HEAD` on first push)
+- Do not commit secrets (`.env`, credentials, tokens)
+- Ask before committing only if the user has explicitly forbidden auto-commit for that session
+
+```text
+# ❌ BAD
+Finish a fix, then start another topic with a dirty working tree
+
+# ✅ GOOD
+git add ...
+git commit -m "Fix login timeout handling"
+git push
+# then switch topics
+```

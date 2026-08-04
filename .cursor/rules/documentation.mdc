@@ -1,0 +1,22 @@
+---
+description: Keep documentation current when changing behavior or project setup
+alwaysApply: true
+---
+
+# Documentation
+
+Document what a future contributor (or future you) needs to run, change, or understand the project.
+
+- Keep the root `README.md` accurate for purpose, setup, and conventions
+- When adding Cursor rules, update `.cursor/rules/README.md`
+- Prefer short, actionable docs over long essays
+- Document non-obvious decisions (why), not only mechanics (what)
+- If a change alters setup, workflow, or public behavior, update the related docs in the same change
+
+```text
+# ❌ BAD
+Ship a new workflow rule and leave README stale
+
+# ✅ GOOD
+Add the rule and mention it in README / .cursor/rules/README.md
+```
