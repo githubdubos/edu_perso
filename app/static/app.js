@@ -23,6 +23,54 @@
     feedback.textContent = "";
   }
 
+  async function copyTextToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const helper = document.createElement("textarea");
+    helper.value = text;
+    helper.setAttribute("readonly", "");
+    helper.style.position = "fixed";
+    helper.style.left = "-9999px";
+    document.body.appendChild(helper);
+    helper.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(helper);
+    if (!ok) {
+      throw new Error("Clipboard copy failed");
+    }
+  }
+
+  feedback.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-copy-url]");
+    if (!button || !feedback.contains(button)) {
+      return;
+    }
+
+    const url = button.getAttribute("data-copy-url") || "";
+    if (!url) {
+      return;
+    }
+
+    const label = button.querySelector(".copy-label") || button;
+    const previous = label.textContent;
+    try {
+      await copyTextToClipboard(url);
+      label.textContent = "Copied";
+      button.classList.add("is-copied");
+      window.setTimeout(() => {
+        label.textContent = previous;
+        button.classList.remove("is-copied");
+      }, 1600);
+    } catch {
+      label.textContent = "Copy failed";
+      window.setTimeout(() => {
+        label.textContent = previous;
+      }, 1600);
+    }
+  });
+
   function detailFromPayload(payload, fallback) {
     let detail = payload.detail || payload.error;
     if (Array.isArray(detail)) {
@@ -177,15 +225,42 @@
 
       const key = payload.key || "ticket";
       const url = payload.url;
-      const link = url
-        ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(key)}</a>`
-        : escapeHtml(key);
+      let html = `Ticket created: ${escapeHtml(key)}`;
 
-      showFeedback("success", `Ticket created: ${link}`);
+      if (url) {
+        const safeUrl = escapeAttr(url);
+        html = `
+          <p class="feedback-title">
+            Ticket created:
+            <a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(key)}</a>
+          </p>
+          <div class="ticket-link-row">
+            <input
+              class="ticket-url-input"
+              type="text"
+              readonly
+              value="${safeUrl}"
+              aria-label="Ticket URL"
+            />
+            <button type="button" class="btn-secondary copy-link-btn" data-copy-url="${safeUrl}">
+              <span class="copy-label">Copy link</span>
+            </button>
+          </div>
+        `;
+      }
+
+      showFeedback("success", html);
       intentInput.value = "";
       titleInput.value = "";
       descriptionInput.value = "";
-      titleInput.focus();
+
+      const urlInput = feedback.querySelector(".ticket-url-input");
+      if (urlInput) {
+        urlInput.focus();
+        urlInput.select();
+      } else {
+        titleInput.focus();
+      }
     } catch (err) {
       showFeedback(
         "error",

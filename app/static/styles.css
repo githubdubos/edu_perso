@@ -178,8 +178,43 @@ button:disabled {
   text-underline-offset: 2px;
 }
 
+.feedback-title {
+  margin: 0;
+}
+
+.ticket-link-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin-top: 0.75rem;
+}
+
+.ticket-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+  font-size: 0.85rem;
+  user-select: text;
+  cursor: text;
+}
+
+.ticket-link-row .copy-link-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0.65rem 0.9rem;
+}
+
+.ticket-link-row .copy-link-btn.is-copied {
+  border-color: rgba(15, 110, 86, 0.75);
+  background: rgba(15, 110, 86, 0.12);
+}
+
 @media (max-width: 480px) {
   button {
     width: 100%;
+  }
+
+  .ticket-link-row {
+    flex-direction: column;
   }
 }
