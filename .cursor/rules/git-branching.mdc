@@ -1,0 +1,22 @@
+---
+description: Work on dedicated feature branches; never develop directly on main
+alwaysApply: true
+---
+
+# Git branching
+
+Do not implement features or fixes directly on `main`.
+
+- Create a dedicated branch for each feature, fix, or topic (e.g. `feat/...`, `fix/...`, `chore/...`)
+- Keep `main` as the integration branch for reviewed, complete work
+- Name branches after the change intent, in English and kebab-case
+
+```text
+# ❌ BAD
+git checkout main
+# ... edit files and commit on main ...
+
+# ✅ GOOD
+git checkout -b feat/add-cursor-rules
+# ... edit, commit, push ...
+```
