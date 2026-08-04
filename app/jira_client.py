@@ -87,23 +87,32 @@ def adf_to_plain_text(node: Any) -> str:
     return "\n".join(cleaned).strip()
 
 
-def create_issue(config: JiraConfig, title: str, description: str) -> dict[str, str]:
+def create_issue(
+    config: JiraConfig,
+    title: str,
+    description: str,
+    parent_key: str | None = None,
+) -> dict[str, str]:
     """
     Create a Jira issue via REST API v3.
 
-    When ``config.parent_key`` is set, the issue is linked as a child of that
+    Uses ``parent_key`` when provided; otherwise falls back to
+    ``config.parent_key``. When set, the issue is linked as a child of that
     epic/parent (verified relationship for ATL-25692: ``parent`` field).
 
     Returns dict with keys: key, url, id.
     """
+    resolved_parent = (parent_key if parent_key is not None else config.parent_key) or ""
+    resolved_parent = resolved_parent.strip()
+
     fields: dict[str, Any] = {
         "project": {"key": config.project_key},
         "summary": title,
         "issuetype": {"name": config.issue_type},
         "description": plain_text_to_adf(description),
     }
-    if config.parent_key:
-        fields["parent"] = {"key": config.parent_key}
+    if resolved_parent:
+        fields["parent"] = {"key": resolved_parent}
 
     payload = {"fields": fields}
 

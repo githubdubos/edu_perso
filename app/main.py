@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -15,6 +16,9 @@ from .llm_client import LlmError, draft_ticket_fields
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+# Jira issue key shape, e.g. ATL-25692
+_PARENT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]+-\d+$")
+
 app = FastAPI(
     title="Jira Ticket UI",
     description="Minimal UI to create Jira tickets with AI-assisted drafting",
@@ -27,6 +31,11 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 class CreateTicketRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str = Field(default="", max_length=32000)
+    parent_key: str | None = Field(
+        default=None,
+        max_length=32,
+        description="Parent epic/issue key; empty uses JIRA_PARENT_KEY env default",
+    )
 
 
 class CreateTicketResponse(BaseModel):
@@ -139,6 +148,28 @@ def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
     )
 
 
+def _resolve_parent_key(requested: str | None, env_default: str) -> str | None:
+    """
+    Prefer the form/API parent key; fall back to env when empty.
+
+    Returns None when neither provides a key. Raises HTTPException on bad format.
+    """
+    raw = (requested or "").strip()
+    if not raw:
+        raw = (env_default or "").strip()
+    if not raw:
+        return None
+    if not _PARENT_KEY_RE.match(raw):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Parent issue must look like PROJECT-123 "
+                "(letters/digits, hyphen, then digits)."
+            ),
+        )
+    return raw.upper()
+
+
 @app.post("/api/tickets", response_model=CreateTicketResponse)
 def create_ticket(body: CreateTicketRequest) -> CreateTicketResponse:
     """Create a Jira issue from title and description (under parent when set)."""
@@ -158,8 +189,15 @@ def create_ticket(body: CreateTicketRequest) -> CreateTicketResponse:
             ),
         )
 
+    parent_key = _resolve_parent_key(body.parent_key, config.parent_key)
+
     try:
-        result = create_issue(config, title=title, description=description)
+        result = create_issue(
+            config,
+            title=title,
+            description=description,
+            parent_key=parent_key,
+        )
     except JiraError as exc:
         status = 502 if exc.status_code is None else min(exc.status_code, 599)
         # Keep client-facing codes in 4xx/5xx that make sense for the UI

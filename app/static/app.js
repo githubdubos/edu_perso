@@ -3,9 +3,13 @@
   const intentInput = document.getElementById("intent");
   const titleInput = document.getElementById("title");
   const descriptionInput = document.getElementById("description");
+  const parentKeyInput = document.getElementById("parent-key");
   const submitBtn = document.getElementById("submit-btn");
   const suggestBtn = document.getElementById("suggest-btn");
   const feedback = document.getElementById("feedback");
+
+  /** Jira issue key shape, e.g. ATL-25692 or PROJ2-1 */
+  const PARENT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]+-\d+$/;
 
   function showFeedback(type, html) {
     feedback.hidden = false;
@@ -27,6 +31,21 @@
         .join("; ");
     }
     return String(detail || fallback);
+  }
+
+  function validateParentKey(value) {
+    const key = value.trim();
+    if (!key) {
+      return { ok: true, value: "" };
+    }
+    if (!PARENT_KEY_PATTERN.test(key)) {
+      return {
+        ok: false,
+        error:
+          "Parent issue must look like PROJECT-123 (letters/digits, hyphen, then digits).",
+      };
+    }
+    return { ok: true, value: key.toUpperCase() };
   }
 
   suggestBtn.addEventListener("click", async () => {
@@ -108,11 +127,22 @@
 
     const title = titleInput.value.trim();
     const description = descriptionInput.value.trim();
+    const parentCheck = validateParentKey(parentKeyInput.value);
 
     if (!title) {
       showFeedback("error", "Please enter a ticket title.");
       titleInput.focus();
       return;
+    }
+
+    if (!parentCheck.ok) {
+      showFeedback("error", escapeHtml(parentCheck.error));
+      parentKeyInput.focus();
+      return;
+    }
+
+    if (parentCheck.value) {
+      parentKeyInput.value = parentCheck.value;
     }
 
     submitBtn.disabled = true;
@@ -123,7 +153,11 @@
       const response = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, description }),
+        body: JSON.stringify({
+          title,
+          description,
+          parent_key: parentCheck.value || null,
+        }),
       });
 
       let payload = {};

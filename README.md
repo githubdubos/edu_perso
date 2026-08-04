@@ -21,10 +21,10 @@ Small FastAPI web app to create Jira issues from a simple form, with optional AI
 
 ### Features
 
-- Intent sketch + title and description inputs
+- Intent sketch + title, description, and **Parent issue** inputs (parent pre-filled with `ATL-25692`)
 - **Suggest with AI** — fetches recent child tickets under `JIRA_PARENT_KEY` (default `ATL-25692`), asks an LLM to draft title/description in the same style, and fills the form (does **not** create the issue)
-- **Create ticket** — validate → create via REST API v3 → show link → clear fields on success
-- New issues are created in `JIRA_PROJECT_KEY` (default `ATL`) with `parent = JIRA_PARENT_KEY` (default `ATL-25692`) when set — verified for ATL `Task` under that epic (legacy backlog children are often RAY Stories; samples still come from all children of the epic)
+- **Create ticket** — validate → create via REST API v3 under the form parent key → show link → clear title/description on success
+- New issues are created in `JIRA_PROJECT_KEY` (default `ATL`) with `parent` from the form (fallback: `JIRA_PARENT_KEY`, default `ATL-25692`) — verified for ATL `Task` under that epic (legacy backlog children are often RAY Stories; samples still come from all children of the epic)
 
 ### Setup
 
@@ -49,7 +49,7 @@ copy .env.example .env
 | `JIRA_API_TOKEN` | yes | [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | `JIRA_PROJECT_KEY` | yes | Target project for **new** issues (default `ATL` under epic ATL-25692; verified) |
 | `JIRA_ISSUE_TYPE` | no | Issue type name (default `Task`; Story also works in ATL) |
-| `JIRA_PARENT_KEY` | no | Parent epic key for samples + create linkage (default `ATL-25692`) |
+| `JIRA_PARENT_KEY` | no | Parent epic key for AI samples + create fallback when the form field is empty (default `ATL-25692`) |
 | `JIRA_SAMPLE_LIMIT` | no | Number of recent child tickets sent to the LLM (default `8`, max `20`) |
 | `OPENAI_API_KEY` | for AI (OpenAI) | OpenAI API key |
 | `OPENAI_MODEL` | no | OpenAI model (default `gpt-4o-mini`) |
@@ -74,9 +74,9 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 1. You enter an intent sketch (or reuse title/description as the sketch).
 2. `POST /api/suggest` loads recent issues with JQL `parent = <JIRA_PARENT_KEY>` via Jira REST (same credentials as create).
 3. Those samples (summary, description, type, labels, components, priority) plus your intent are sent to OpenAI, Azure OpenAI, or Gemini.
-4. The response fills **Title** and **Description** in the form. You review/edit, then click **Create ticket**.
+4. The response fills **Title** and **Description** in the form. You review/edit the fields (including **Parent issue**), then click **Create ticket**.
 
-If no LLM key is configured, the suggest endpoint returns a clear `503` listing the missing env vars. Create still works without an LLM key.
+If no LLM key is configured, the suggest endpoint returns a clear `503` listing the missing env vars. Create still works without an LLM key. Create uses the **Parent issue** form value (format `PROJECT-123`); if left empty, the server falls back to `JIRA_PARENT_KEY`.
 
 #### Gemini setup (local / AI Studio)
 
@@ -103,4 +103,4 @@ Internal guide (billing, GCP project, Vertex vs Developer API): [How to programm
 - `GET /` — form UI
 - `GET /api/health` — Jira/LLM config presence check (no secrets)
 - `POST /api/suggest` — JSON body `{ "intent": "..." }` → `{ title, description, samples_used, parent_key }`
-- `POST /api/tickets` — JSON body `{ "title": "...", "description": "..." }` (creates under parent when configured)
+- `POST /api/tickets` — JSON body `{ "title": "...", "description": "...", "parent_key": "ATL-25692" }` (`parent_key` optional; empty falls back to `JIRA_PARENT_KEY`)
