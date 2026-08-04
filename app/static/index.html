@@ -17,10 +17,31 @@
       <header class="brand">
         <p class="brand-name">Jira Ticket UI</p>
         <h1>Create a ticket</h1>
-        <p class="lede">Enter a title and description, then submit to open an issue in your configured Jira project.</p>
+        <p class="lede">
+          Sketch your intent, optionally suggest title and description with AI
+          (inspired by tickets under the configured parent epic), then review and
+          create.
+        </p>
       </header>
 
       <form id="ticket-form" class="form" novalidate>
+        <label class="field">
+          <span>Intent / sketch</span>
+          <textarea
+            id="intent"
+            name="intent"
+            rows="4"
+            maxlength="8000"
+            placeholder="What should this ticket cover? Rough notes are fine."
+          ></textarea>
+        </label>
+
+        <div class="actions actions-secondary">
+          <button type="button" id="suggest-btn" class="btn-secondary">
+            Suggest with AI
+          </button>
+        </div>
+
         <label class="field">
           <span>Title</span>
           <input

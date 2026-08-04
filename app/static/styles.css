@@ -111,6 +111,10 @@ textarea:focus {
   margin-top: 0.25rem;
 }
 
+.actions-secondary {
+  margin-top: -0.25rem;
+}
+
 button {
   appearance: none;
   border: none;
@@ -121,10 +125,22 @@ button {
   font-weight: 600;
   padding: 0.8rem 1.25rem;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.12s ease;
+  transition: background 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
 }
 
-button:hover:not(:disabled) {
+button.btn-secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid rgba(15, 110, 86, 0.45);
+}
+
+button.btn-secondary:hover:not(:disabled) {
+  background: rgba(15, 110, 86, 0.08);
+  color: var(--accent-hover);
+  border-color: rgba(15, 110, 86, 0.65);
+}
+
+button:hover:not(:disabled):not(.btn-secondary) {
   background: var(--accent-hover);
 }
 
