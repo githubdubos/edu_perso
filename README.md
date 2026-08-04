@@ -24,7 +24,7 @@ Small FastAPI web app to create Jira issues from a simple form, with optional AI
 - Intent sketch + title and description inputs
 - **Suggest with AI** — fetches recent child tickets under `JIRA_PARENT_KEY` (default `ATL-25692`), asks an LLM to draft title/description in the same style, and fills the form (does **not** create the issue)
 - **Create ticket** — validate → create via REST API v3 → show link → clear fields on success
-- New issues are created with `parent = JIRA_PARENT_KEY` when that env var is set (on this Jira Cloud site, children of epic ATL-25692 use the **parent** field, not a separate Epic Link)
+- New issues are created in `JIRA_PROJECT_KEY` (default `ATL`) with `parent = JIRA_PARENT_KEY` (default `ATL-25692`) when set — verified for ATL `Task` under that epic (legacy backlog children are often RAY Stories; samples still come from all children of the epic)
 
 ### Setup
 
@@ -47,8 +47,8 @@ copy .env.example .env
 | `JIRA_BASE_URL` | yes | Jira base URL, e.g. `https://your-domain.atlassian.net` |
 | `JIRA_EMAIL` | yes | Atlassian account email |
 | `JIRA_API_TOKEN` | yes | [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) |
-| `JIRA_PROJECT_KEY` | yes | Target project for **new** issues (for ATL-25692 backlog children, typically `RAY`) |
-| `JIRA_ISSUE_TYPE` | no | Issue type name (default `Story`) |
+| `JIRA_PROJECT_KEY` | yes | Target project for **new** issues (default `ATL` under epic ATL-25692; verified) |
+| `JIRA_ISSUE_TYPE` | no | Issue type name (default `Task`; Story also works in ATL) |
 | `JIRA_PARENT_KEY` | no | Parent epic key for samples + create linkage (default `ATL-25692`) |
 | `JIRA_SAMPLE_LIMIT` | no | Number of recent child tickets sent to the LLM (default `8`, max `20`) |
 | `OPENAI_API_KEY` | for AI (OpenAI) | OpenAI API key |
