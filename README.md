@@ -57,7 +57,9 @@ copy .env.example .env
 | `AZURE_OPENAI_ENDPOINT` | for AI (Azure) | e.g. `https://your-resource.openai.azure.com` |
 | `AZURE_OPENAI_DEPLOYMENT` | for AI (Azure) | Deployment name |
 | `AZURE_OPENAI_API_VERSION` | no | Azure API version (default `2024-08-01-preview`) |
-| `LLM_PROVIDER` | no | Force `openai` or `azure`; otherwise Azure wins if its key is set |
+| `GEMINI_API_KEY` | for AI (Gemini) | Gemini Developer API key ([AI Studio](https://aistudio.google.com/app/api-keys)); `GOOGLE_API_KEY` also accepted |
+| `GEMINI_MODEL` | no | Gemini model (default `gemini-2.0-flash`) |
+| `LLM_PROVIDER` | no | Force `openai`, `azure`, or `gemini`; otherwise Azure → OpenAI → Gemini by first key found |
 
 3. Run the server:
 
@@ -71,10 +73,30 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 1. You enter an intent sketch (or reuse title/description as the sketch).
 2. `POST /api/suggest` loads recent issues with JQL `parent = <JIRA_PARENT_KEY>` via Jira REST (same credentials as create).
-3. Those samples (summary, description, type, labels, components, priority) plus your intent are sent to OpenAI or Azure OpenAI.
+3. Those samples (summary, description, type, labels, components, priority) plus your intent are sent to OpenAI, Azure OpenAI, or Gemini.
 4. The response fills **Title** and **Description** in the form. You review/edit, then click **Create ticket**.
 
 If no LLM key is configured, the suggest endpoint returns a clear `503` listing the missing env vars. Create still works without an LLM key.
+
+#### Gemini setup (local / AI Studio)
+
+Simplest local path: Gemini Developer API with an API key from [Google AI Studio](https://aistudio.google.com/app/api-keys) (`google-genai`).
+
+```powershell
+# In .env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-ai-studio-key
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+Then reinstall deps if needed and **restart uvicorn** so env changes load:
+
+```powershell
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Internal guide (billing, GCP project, Vertex vs Developer API): [How to programmatically call AI (LLM / Gemini)](https://ma-banking.atlassian.net/wiki/spaces/ERFS/pages/442106176/How+to+programmatically+call+AI+LLM+Gemini).
 
 ### API
 

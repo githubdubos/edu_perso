@@ -45,7 +45,7 @@ class JiraConfig:
 
 @dataclass(frozen=True)
 class LlmConfig:
-    """LLM provider settings (OpenAI or Azure OpenAI)."""
+    """LLM provider settings (OpenAI, Azure OpenAI, or Gemini)."""
 
     provider: str
     api_key: str
@@ -62,7 +62,7 @@ class LlmConfig:
                 and self.azure_endpoint
                 and self.azure_deployment
             )
-        if self.provider == "openai":
+        if self.provider in {"openai", "gemini"}:
             return bool(self.api_key and self.model)
         return False
 
@@ -80,8 +80,16 @@ class LlmConfig:
                 "OPENAI_MODEL": self.model,
             }
             return [key for key, value in required.items() if not value]
+        if self.provider == "gemini":
+            missing: list[str] = []
+            if not self.api_key:
+                missing.append("GEMINI_API_KEY (or GOOGLE_API_KEY)")
+            if not self.model:
+                missing.append("GEMINI_MODEL")
+            return missing
         return [
-            "LLM_PROVIDER (or OPENAI_API_KEY / AZURE_OPENAI_API_KEY)",
+            "LLM_PROVIDER (or OPENAI_API_KEY / AZURE_OPENAI_API_KEY / "
+            "GEMINI_API_KEY)",
         ]
 
 
@@ -111,26 +119,44 @@ def load_llm_config() -> LlmConfig:
     Preference order when LLM_PROVIDER is unset:
     1. Azure OpenAI if AZURE_OPENAI_API_KEY is set
     2. OpenAI if OPENAI_API_KEY is set
+    3. Gemini if GEMINI_API_KEY or GOOGLE_API_KEY is set
     """
     azure_key = (os.getenv("AZURE_OPENAI_API_KEY") or "").strip()
     openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    gemini_key = (
+        (os.getenv("GEMINI_API_KEY") or "").strip()
+        or (os.getenv("GOOGLE_API_KEY") or "").strip()
+    )
     explicit = (os.getenv("LLM_PROVIDER") or "").strip().lower()
 
-    if explicit in {"azure", "openai"}:
+    if explicit in {"azure", "openai", "gemini"}:
         provider = explicit
     elif azure_key:
         provider = "azure"
     elif openai_key:
         provider = "openai"
+    elif gemini_key:
+        provider = "gemini"
     else:
         provider = ""
 
-    api_key = azure_key if provider == "azure" else openai_key
+    if provider == "azure":
+        api_key = azure_key
+        model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
+    elif provider == "gemini":
+        api_key = gemini_key
+        model = (
+            (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+            or "gemini-2.0-flash"
+        )
+    else:
+        api_key = openai_key
+        model = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
 
     return LlmConfig(
         provider=provider,
         api_key=api_key,
-        model=(os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini",
+        model=model,
         azure_endpoint=(os.getenv("AZURE_OPENAI_ENDPOINT") or "").rstrip("/"),
         azure_api_version=(
             os.getenv("AZURE_OPENAI_API_VERSION") or "2024-08-01-preview"

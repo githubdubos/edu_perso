@@ -1,4 +1,4 @@
-"""Minimal OpenAI / Azure OpenAI chat client for ticket drafting."""
+"""Minimal OpenAI / Azure OpenAI / Gemini chat client for ticket drafting."""
 
 from __future__ import annotations
 
@@ -70,11 +70,48 @@ def draft_ticket_fields(
         + "\n\nReturn JSON: {\"title\": \"...\", \"description\": \"...\"}"
     )
 
-    content = _chat_completion(config, system=system, user=user)
+    if config.provider == "gemini":
+        content = _gemini_completion(config, system=system, user=user)
+    else:
+        content = _openai_compatible_completion(config, system=system, user=user)
     return _parse_draft_json(content)
 
 
-def _chat_completion(config: LlmConfig, *, system: str, user: str) -> str:
+def _gemini_completion(config: LlmConfig, *, system: str, user: str) -> str:
+    """Call Gemini Developer API (google-genai) and return model text."""
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as exc:
+        raise LlmError(
+            "google-genai is not installed. Run: pip install -r requirements.txt"
+        ) from exc
+
+    try:
+        client = genai.Client(api_key=config.api_key)
+        response = client.models.generate_content(
+            model=config.model,
+            contents=user,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.4,
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — map SDK/provider errors
+        message = str(exc).strip() or exc.__class__.__name__
+        # Avoid echoing long payloads; never include the API key.
+        raise LlmError(f"Gemini API error: {message[:400]}") from exc
+
+    content = getattr(response, "text", None)
+    if not isinstance(content, str) or not content.strip():
+        raise LlmError("LLM provider returned an empty message.")
+    return content.strip()
+
+
+def _openai_compatible_completion(
+    config: LlmConfig, *, system: str, user: str
+) -> str:
     """Call OpenAI-compatible chat completions and return assistant text."""
     messages = [
         {"role": "system", "content": system},
