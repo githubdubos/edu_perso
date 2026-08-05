@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
 
-from .config import JiraConfig
+from .config import (
+    DEFAULT_JIRA_TEAM_ID,
+    DEFAULT_JIRA_TEAM_NAME,
+    JiraConfig,
+)
+
+# Atlassian Team field on this site (create-meta for ATL Task accepts it).
+TEAM_CUSTOM_FIELD = "customfield_10001"
+
+# Team IDs are UUIDs, sometimes with a numeric suffix (seen on ATL-25692).
+_TEAM_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(-\d+)?$"
+)
+
+# Friendly name → team id (extend via JIRA_TEAM_NAME / JIRA_TEAM_ID).
+_KNOWN_TEAM_IDS: dict[str, str] = {
+    DEFAULT_JIRA_TEAM_NAME: DEFAULT_JIRA_TEAM_ID,
+}
 
 
 class JiraError(Exception):
@@ -15,6 +34,33 @@ class JiraError(Exception):
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+def resolve_team_id(team: str | None, config: JiraConfig) -> str | None:
+    """
+    Resolve a UI team value (friendly name or id) to a Jira Team id.
+
+    Returns None when empty so callers can omit ``customfield_10001``.
+    """
+    raw = (team or "").strip()
+    if not raw:
+        return None
+    if _TEAM_ID_RE.match(raw):
+        return raw
+
+    mapping = dict(_KNOWN_TEAM_IDS)
+    if config.team_name and config.team_id:
+        mapping[config.team_name] = config.team_id
+
+    for name, team_id in mapping.items():
+        if name.casefold() == raw.casefold():
+            return team_id
+
+    raise JiraError(
+        f"Unknown team '{raw}'. Enter a team id, use a known name "
+        f"(e.g. {DEFAULT_JIRA_TEAM_NAME}), or set JIRA_TEAM_NAME / JIRA_TEAM_ID.",
+        status_code=400,
+    )
 
 
 def plain_text_to_adf(text: str) -> dict[str, Any]:
@@ -92,6 +138,7 @@ def create_issue(
     title: str,
     description: str,
     parent_key: str | None = None,
+    team: str | None = None,
 ) -> dict[str, str]:
     """
     Create a Jira issue via REST API v3.
@@ -100,10 +147,14 @@ def create_issue(
     ``config.parent_key``. When set, the issue is linked as a child of that
     epic/parent (verified relationship for ATL-25692: ``parent`` field).
 
+    When ``team`` resolves to an id, sets ``customfield_10001`` to that id
+    string (Jira Cloud Team field shape). Empty team omits the field.
+
     Returns dict with keys: key, url, id.
     """
     resolved_parent = (parent_key if parent_key is not None else config.parent_key) or ""
     resolved_parent = resolved_parent.strip()
+    team_id = resolve_team_id(team, config)
 
     fields: dict[str, Any] = {
         "project": {"key": config.project_key},
@@ -113,6 +164,9 @@ def create_issue(
     }
     if resolved_parent:
         fields["parent"] = {"key": resolved_parent}
+    if team_id:
+        # Official create/update shape: customfield_10001 = "<team-id>"
+        fields[TEAM_CUSTOM_FIELD] = team_id
 
     payload = {"fields": fields}
 

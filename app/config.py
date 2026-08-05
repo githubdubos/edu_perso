@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Default Atlassian Team shown in the UI (name) and sent as customfield_10001 (id).
+# Verified from epic ATL-25692 on ma-banking.atlassian.net.
+DEFAULT_JIRA_TEAM_NAME = "BC.RCOFit+LR"
+DEFAULT_JIRA_TEAM_ID = "7ed41a1b-0081-46cd-b045-228ee9e6d8b4-7"
+
 
 @dataclass(frozen=True)
 class JiraConfig:
@@ -21,6 +26,8 @@ class JiraConfig:
     issue_type: str
     parent_key: str
     sample_limit: int
+    team_name: str
+    team_id: str
 
     @property
     def is_complete(self) -> bool:
@@ -101,6 +108,11 @@ def load_jira_config() -> JiraConfig:
     except ValueError:
         sample_limit = 8
 
+    team_name = (os.getenv("JIRA_TEAM_NAME") or DEFAULT_JIRA_TEAM_NAME).strip()
+    team_id = (os.getenv("JIRA_TEAM_ID") or "").strip()
+    if not team_id and team_name == DEFAULT_JIRA_TEAM_NAME:
+        team_id = DEFAULT_JIRA_TEAM_ID
+
     return JiraConfig(
         base_url=(os.getenv("JIRA_BASE_URL") or "").rstrip("/"),
         email=(os.getenv("JIRA_EMAIL") or "").strip(),
@@ -109,6 +121,8 @@ def load_jira_config() -> JiraConfig:
         issue_type=(os.getenv("JIRA_ISSUE_TYPE") or "Task").strip() or "Task",
         parent_key=(os.getenv("JIRA_PARENT_KEY") or "ATL-25692").strip(),
         sample_limit=sample_limit,
+        team_name=team_name,
+        team_id=team_id,
     )
 
 

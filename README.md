@@ -21,10 +21,11 @@ Small FastAPI web app to create Jira issues from a simple form, with optional AI
 
 ### Features
 
-- Intent sketch + title, description, and **Parent issue** inputs (parent pre-filled with `ATL-25692`)
+- Intent sketch + title, description, **Parent issue**, and **Team** inputs (parent pre-filled with `ATL-25692`; team with `BC.RCOFit+LR`)
 - **Suggest with AI** — fetches recent child tickets under `JIRA_PARENT_KEY` (default `ATL-25692`), asks an LLM to draft title/description in the same style, and fills the form (does **not** create the issue)
 - **Create ticket** — validate → create via REST API v3 under the form parent key → show link → clear title/description on success
 - New issues are created in `JIRA_PROJECT_KEY` (default `ATL`) with `parent` from the form (fallback: `JIRA_PARENT_KEY`, default `ATL-25692`) — verified for ATL `Task` under that epic (legacy backlog children are often RAY Stories; samples still come from all children of the epic)
+- **Team** maps to Jira Cloud `customfield_10001` as the team **id** string (create-meta accepts it for ATL Task). The UI shows the friendly name; empty Team omits the field
 
 ### Setup
 
@@ -51,6 +52,8 @@ copy .env.example .env
 | `JIRA_ISSUE_TYPE` | no | Issue type name (default `Task`; Story also works in ATL) |
 | `JIRA_PARENT_KEY` | no | Parent epic key for AI samples + create fallback when the form field is empty (default `ATL-25692`) |
 | `JIRA_SAMPLE_LIMIT` | no | Number of recent child tickets sent to the LLM (default `8`, max `20`) |
+| `JIRA_TEAM_NAME` | no | Default Team label in the UI / name→id map (default `BC.RCOFit+LR`) |
+| `JIRA_TEAM_ID` | no | Atlassian Team id sent as `customfield_10001` (default id for `BC.RCOFit+LR` from ATL-25692) |
 | `OPENAI_API_KEY` | for AI (OpenAI) | OpenAI API key |
 | `OPENAI_MODEL` | no | OpenAI model (default `gpt-4o-mini`) |
 | `AZURE_OPENAI_API_KEY` | for AI (Azure) | Azure OpenAI key |
@@ -74,9 +77,9 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 1. You enter an intent sketch (or reuse title/description as the sketch).
 2. `POST /api/suggest` loads recent issues with JQL `parent = <JIRA_PARENT_KEY>` via Jira REST (same credentials as create).
 3. Those samples (summary, description, type, labels, components, priority) plus your intent are sent to OpenAI, Azure OpenAI, or Gemini.
-4. The response fills **Title** and **Description** in the form. You review/edit the fields (including **Parent issue**), then click **Create ticket**.
+4. The response fills **Title** and **Description** in the form. You review/edit the fields (including **Parent issue** and **Team**), then click **Create ticket**.
 
-If no LLM key is configured, the suggest endpoint returns a clear `503` listing the missing env vars. Create still works without an LLM key. Create uses the **Parent issue** form value (format `PROJECT-123`); if left empty, the server falls back to `JIRA_PARENT_KEY`.
+If no LLM key is configured, the suggest endpoint returns a clear `503` listing the missing env vars. Create still works without an LLM key. Create uses the **Parent issue** form value (format `PROJECT-123`); if left empty, the server falls back to `JIRA_PARENT_KEY`. **Team** accepts a friendly name or a team id; known names (and `JIRA_TEAM_NAME` → `JIRA_TEAM_ID`) are resolved before create. Clear the Team field to omit it.
 
 #### Gemini setup (local / AI Studio)
 
@@ -103,4 +106,4 @@ Internal guide (billing, GCP project, Vertex vs Developer API): [How to programm
 - `GET /` — form UI
 - `GET /api/health` — Jira/LLM config presence check (no secrets)
 - `POST /api/suggest` — JSON body `{ "intent": "..." }` → `{ title, description, samples_used, parent_key }`
-- `POST /api/tickets` — JSON body `{ "title": "...", "description": "...", "parent_key": "ATL-25692" }` (`parent_key` optional; empty falls back to `JIRA_PARENT_KEY`)
+- `POST /api/tickets` — JSON body `{ "title": "...", "description": "...", "parent_key": "ATL-25692", "team": "BC.RCOFit+LR" }` (`parent_key` optional; empty falls back to `JIRA_PARENT_KEY`; `team` optional; empty omits `customfield_10001`)

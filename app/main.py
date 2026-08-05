@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .config import load_jira_config, load_llm_config
+from .config import DEFAULT_JIRA_TEAM_NAME, load_jira_config, load_llm_config
 from .jira_client import JiraError, create_issue, search_sample_issues
 from .llm_client import LlmError, draft_ticket_fields
 
@@ -35,6 +35,14 @@ class CreateTicketRequest(BaseModel):
         default=None,
         max_length=32,
         description="Parent epic/issue key; empty uses JIRA_PARENT_KEY env default",
+    )
+    team: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "Atlassian Team friendly name or id for customfield_10001; "
+            "empty omits the field"
+        ),
     )
 
 
@@ -76,6 +84,8 @@ def health() -> dict[str, object]:
         "project_key": jira.project_key or None,
         "issue_type": jira.issue_type,
         "parent_key": jira.parent_key or None,
+        "team_name": jira.team_name or DEFAULT_JIRA_TEAM_NAME,
+        "team_id": jira.team_id or None,
         "llm_configured": llm.is_complete,
         "llm_provider": llm.provider or None,
         "llm_missing": llm.missing_keys() if not llm.is_complete else [],
@@ -190,6 +200,7 @@ def create_ticket(body: CreateTicketRequest) -> CreateTicketResponse:
         )
 
     parent_key = _resolve_parent_key(body.parent_key, config.parent_key)
+    team = (body.team or "").strip() or None
 
     try:
         result = create_issue(
@@ -197,6 +208,7 @@ def create_ticket(body: CreateTicketRequest) -> CreateTicketResponse:
             title=title,
             description=description,
             parent_key=parent_key,
+            team=team,
         )
     except JiraError as exc:
         status = 502 if exc.status_code is None else min(exc.status_code, 599)

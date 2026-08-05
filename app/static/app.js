@@ -4,12 +4,37 @@
   const titleInput = document.getElementById("title");
   const descriptionInput = document.getElementById("description");
   const parentKeyInput = document.getElementById("parent-key");
+  const teamInput = document.getElementById("team");
   const submitBtn = document.getElementById("submit-btn");
   const suggestBtn = document.getElementById("suggest-btn");
   const feedback = document.getElementById("feedback");
 
   /** Jira issue key shape, e.g. ATL-25692 or PROJ2-1 */
   const PARENT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]+-\d+$/;
+
+  // Prefill Team (and Parent) from server env defaults when available.
+  fetch("/api/health")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((payload) => {
+      if (!payload) {
+        return;
+      }
+      if (payload.team_name && teamInput && !teamInput.dataset.userEdited) {
+        teamInput.value = payload.team_name;
+      }
+      if (payload.parent_key && parentKeyInput && !parentKeyInput.value.trim()) {
+        parentKeyInput.value = payload.parent_key;
+      }
+    })
+    .catch(() => {
+      /* keep HTML defaults */
+    });
+
+  if (teamInput) {
+    teamInput.addEventListener("input", () => {
+      teamInput.dataset.userEdited = "1";
+    });
+  }
 
   function showFeedback(type, html) {
     feedback.hidden = false;
@@ -175,6 +200,7 @@
 
     const title = titleInput.value.trim();
     const description = descriptionInput.value.trim();
+    const team = teamInput.value.trim();
     const parentCheck = validateParentKey(parentKeyInput.value);
 
     if (!title) {
@@ -205,6 +231,7 @@
           title,
           description,
           parent_key: parentCheck.value || null,
+          team: team || null,
         }),
       });
 
