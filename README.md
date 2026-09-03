@@ -49,7 +49,7 @@ copy .env.example .env
 | `JIRA_EMAIL` | yes | Atlassian account email |
 | `JIRA_API_TOKEN` | yes | [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | `JIRA_PROJECT_KEY` | yes | Target project for **new** issues (default `ATL` under epic ATL-25692; verified) |
-| `JIRA_ISSUE_TYPE` | no | Issue type name (default `Task`; Story also works in ATL) |
+| `JIRA_ISSUE_TYPE` | no | Issue type name (default `Story`) |
 | `JIRA_PARENT_KEY` | no | Parent epic key for AI samples + create fallback when the form field is empty (default `ATL-25692`) |
 | `JIRA_SAMPLE_LIMIT` | no | Number of recent child tickets sent as style samples (default `8`, max `20`) |
 | `JIRA_TEAM_NAME` | no | Default Team label in the UI / name→id map (default `BC.RCOFit+LR`) |

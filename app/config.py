@@ -172,7 +172,7 @@ def load_jira_config() -> JiraConfig:
         email=(os.getenv("JIRA_EMAIL") or "").strip(),
         api_token=(os.getenv("JIRA_API_TOKEN") or "").strip(),
         project_key=(os.getenv("JIRA_PROJECT_KEY") or "ATL").strip() or "ATL",
-        issue_type=(os.getenv("JIRA_ISSUE_TYPE") or "Task").strip() or "Task",
+        issue_type=(os.getenv("JIRA_ISSUE_TYPE") or "Story").strip() or "Story",
         parent_key=(os.getenv("JIRA_PARENT_KEY") or "ATL-25692").strip(),
         sample_limit=sample_limit,
         team_name=team_name,
