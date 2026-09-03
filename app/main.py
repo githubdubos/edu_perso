@@ -11,7 +11,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .config import DEFAULT_JIRA_TEAM_NAME, load_jira_config, load_suggest_config
+from .config import (
+    DEFAULT_JIRA_TEAM_NAME,
+    load_client_jira_config,
+    load_jira_config,
+    load_suggest_config,
+)
 from .confluence_client import resolve_confluence_page
 from .cursor_suggest import complete_bridge_suggest, draft_ticket_fields_cursor
 from .jira_client import JiraError, create_issue, get_issue, search_sample_issues
@@ -100,11 +105,16 @@ def index() -> FileResponse:
 def health() -> dict[str, object]:
     """Report whether required Jira/Suggest env config is present (no secrets)."""
     jira = load_jira_config()
+    client_jira = load_client_jira_config()
     suggest = load_suggest_config()
     return {
         "ok": True,
         "jira_configured": jira.is_complete,
         "missing": jira.missing_keys(),
+        "client_jira_site": client_jira.base_url or None,
+        "client_jira_configured": bool(
+            client_jira.base_url and client_jira.email and client_jira.api_token
+        ),
         "project_key": jira.project_key or None,
         "issue_type": jira.issue_type,
         "parent_key": jira.parent_key or None,
@@ -190,8 +200,19 @@ async def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
     client_ticket = None
     client_ref = (body.client_ticket or "").strip()
     if client_ref:
+        client_jira = load_client_jira_config()
+        if not (client_jira.base_url and client_jira.email and client_jira.api_token):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "The customer Jira site is not configured. Set "
+                    "CLIENT_JIRA_BASE_URL (and CLIENT_JIRA_EMAIL / "
+                    "CLIENT_JIRA_API_TOKEN when they differ from the "
+                    "development site); see .env.example."
+                ),
+            )
         try:
-            client_ticket = await asyncio.to_thread(get_issue, jira, client_ref)
+            client_ticket = await asyncio.to_thread(get_issue, client_jira, client_ref)
         except JiraError as exc:
             status = 502 if exc.status_code is None else min(exc.status_code, 599)
             if status < 400:

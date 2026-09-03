@@ -21,6 +21,9 @@ DEFAULT_JIRA_TEAM_ID = "7ed41a1b-0081-46cd-b045-228ee9e6d8b4-7"
 # Default Suggest provider: Cursor agent (SDK). Gemini/OpenAI remain optional.
 DEFAULT_SUGGEST_PROVIDER = "cursor"
 
+# Atlassian site holding customer tickets, distinct from the development site.
+DEFAULT_CLIENT_JIRA_BASE_URL = "https://regnology-cloud.atlassian.net"
+
 
 @dataclass(frozen=True)
 class JiraConfig:
@@ -174,6 +177,37 @@ def load_jira_config() -> JiraConfig:
         sample_limit=sample_limit,
         team_name=team_name,
         team_id=team_id,
+    )
+
+
+def load_client_jira_config() -> JiraConfig:
+    """
+    Load the Jira site that holds customer tickets.
+
+    Customer tickets live on a different Atlassian site than the development
+    project, so the "Client ticket reference" field must be resolved there.
+    Atlassian API tokens are account-scoped rather than site-scoped, so the
+    development credentials work here unless overridden.
+    """
+    base_url = (
+        os.getenv("CLIENT_JIRA_BASE_URL") or DEFAULT_CLIENT_JIRA_BASE_URL
+    ).rstrip("/")
+    email = (os.getenv("CLIENT_JIRA_EMAIL") or os.getenv("JIRA_EMAIL") or "").strip()
+    api_token = (
+        os.getenv("CLIENT_JIRA_API_TOKEN") or os.getenv("JIRA_API_TOKEN") or ""
+    ).strip()
+
+    return JiraConfig(
+        base_url=base_url,
+        email=email,
+        api_token=api_token,
+        # Read-only site: creation settings below are never used.
+        project_key="",
+        issue_type="",
+        parent_key="",
+        sample_limit=1,
+        team_name="",
+        team_id="",
     )
 
 

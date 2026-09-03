@@ -54,6 +54,9 @@ copy .env.example .env
 | `JIRA_SAMPLE_LIMIT` | no | Number of recent child tickets sent as style samples (default `8`, max `20`) |
 | `JIRA_TEAM_NAME` | no | Default Team label in the UI / name→id map (default `BC.RCOFit+LR`) |
 | `JIRA_TEAM_ID` | no | Atlassian Team id sent as `customfield_10001` (default id for `BC.RCOFit+LR` from ATL-25692) |
+| `CLIENT_JIRA_BASE_URL` | no | Atlassian site holding **customer** tickets, read by the Client ticket field (default `https://regnology-cloud.atlassian.net`) |
+| `CLIENT_JIRA_EMAIL` | no | Account for the customer site (falls back to `JIRA_EMAIL`) |
+| `CLIENT_JIRA_API_TOKEN` | no | Token for the customer site (falls back to `JIRA_API_TOKEN`) |
 | `SUGGEST_PROVIDER` | no | `cursor` (default), or `gemini` / `openai` / `azure` |
 | `CURSOR_API_KEY` | for Cursor Suggest | User/service API key from [Cursor Dashboard → Integrations](https://cursor.com/dashboard/integrations) |
 | `CURSOR_MODEL` | no | Cursor SDK model id (default `composer-2.5`) |
@@ -77,6 +80,23 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+### Two Atlassian sites
+
+The app reads from two separate Atlassian sites:
+
+| Source | Site | Variables |
+|--------|------|-----------|
+| Development tickets (`ATL-25692` children) and Confluence wiki pages | `ma-banking.atlassian.net` | `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` |
+| Customer tickets (Client ticket field) | `regnology-cloud.atlassian.net` | `CLIENT_JIRA_*`, falling back to the development credentials |
+
+Atlassian API tokens are scoped to an **account**, not to a site, so one token
+normally covers both. Only set `CLIENT_JIRA_EMAIL` / `CLIENT_JIRA_API_TOKEN` when
+the customer site is reached with a different account. `GET /api/health` reports
+`client_jira_site` and `client_jira_configured` so you can confirm the wiring.
+
+Tickets are only ever **created** on the development site; the customer site is
+read-only.
 
 ### How Suggest via Cursor works
 
