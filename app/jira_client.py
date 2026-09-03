@@ -1,0 +1,372 @@
+"""Minimal Jira Cloud/Server REST client for issue create and sample fetch."""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+import httpx
+
+from .config import (
+    DEFAULT_JIRA_TEAM_ID,
+    DEFAULT_JIRA_TEAM_NAME,
+    JiraConfig,
+)
+
+# Atlassian Team field on this site (create-meta for ATL Task accepts it).
+TEAM_CUSTOM_FIELD = "customfield_10001"
+
+# Team IDs are UUIDs, sometimes with a numeric suffix (seen on ATL-25692).
+_TEAM_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(-\d+)?$"
+)
+
+# Friendly name → team id (extend via JIRA_TEAM_NAME / JIRA_TEAM_ID).
+_KNOWN_TEAM_IDS: dict[str, str] = {
+    DEFAULT_JIRA_TEAM_NAME: DEFAULT_JIRA_TEAM_ID,
+}
+
+
+class JiraError(Exception):
+    """Raised when Jira rejects a request or returns an unexpected response."""
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def resolve_team_id(team: str | None, config: JiraConfig) -> str | None:
+    """
+    Resolve a UI team value (friendly name or id) to a Jira Team id.
+
+    Returns None when empty so callers can omit ``customfield_10001``.
+    """
+    raw = (team or "").strip()
+    if not raw:
+        return None
+    if _TEAM_ID_RE.match(raw):
+        return raw
+
+    mapping = dict(_KNOWN_TEAM_IDS)
+    if config.team_name and config.team_id:
+        mapping[config.team_name] = config.team_id
+
+    for name, team_id in mapping.items():
+        if name.casefold() == raw.casefold():
+            return team_id
+
+    raise JiraError(
+        f"Unknown team '{raw}'. Enter a team id, use a known name "
+        f"(e.g. {DEFAULT_JIRA_TEAM_NAME}), or set JIRA_TEAM_NAME / JIRA_TEAM_ID.",
+        status_code=400,
+    )
+
+
+def plain_text_to_adf(text: str) -> dict[str, Any]:
+    """Convert plain text to Atlassian Document Format (one paragraph per line)."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    paragraphs: list[dict[str, Any]] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        paragraphs.append(
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": line}],
+            }
+        )
+    if not paragraphs:
+        paragraphs.append(
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": " "}],
+            }
+        )
+    return {"type": "doc", "version": 1, "content": paragraphs}
+
+
+def adf_to_plain_text(node: Any) -> str:
+    """Best-effort conversion of ADF (or string) description to plain text."""
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node.strip()
+    if not isinstance(node, dict):
+        return str(node).strip()
+
+    parts: list[str] = []
+
+    def walk(item: Any) -> None:
+        if isinstance(item, str):
+            parts.append(item)
+            return
+        if not isinstance(item, dict):
+            return
+        node_type = item.get("type")
+        if node_type == "text":
+            parts.append(str(item.get("text") or ""))
+            return
+        if node_type == "hardBreak":
+            parts.append("\n")
+            return
+        content = item.get("content")
+        if isinstance(content, list):
+            for child in content:
+                walk(child)
+            if node_type in {"paragraph", "heading", "bulletList", "orderedList", "listItem"}:
+                parts.append("\n")
+
+    walk(node)
+    text = "".join(parts)
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
+    # Collapse runs of blank lines
+    cleaned: list[str] = []
+    blank = False
+    for line in lines:
+        if line.strip():
+            cleaned.append(line)
+            blank = False
+        elif not blank:
+            cleaned.append("")
+            blank = True
+    return "\n".join(cleaned).strip()
+
+
+def create_issue(
+    config: JiraConfig,
+    title: str,
+    description: str,
+    parent_key: str | None = None,
+    team: str | None = None,
+) -> dict[str, str]:
+    """
+    Create a Jira issue via REST API v3.
+
+    Uses ``parent_key`` when provided; otherwise falls back to
+    ``config.parent_key``. When set, the issue is linked as a child of that
+    epic/parent (verified relationship for ATL-25692: ``parent`` field).
+
+    When ``team`` resolves to an id, sets ``customfield_10001`` to that id
+    string (Jira Cloud Team field shape). Empty team omits the field.
+
+    Returns dict with keys: key, url, id.
+    """
+    resolved_parent = (parent_key if parent_key is not None else config.parent_key) or ""
+    resolved_parent = resolved_parent.strip()
+    team_id = resolve_team_id(team, config)
+
+    fields: dict[str, Any] = {
+        "project": {"key": config.project_key},
+        "summary": title,
+        "issuetype": {"name": config.issue_type},
+        "description": plain_text_to_adf(description),
+    }
+    if resolved_parent:
+        fields["parent"] = {"key": resolved_parent}
+    if team_id:
+        # Official create/update shape: customfield_10001 = "<team-id>"
+        fields[TEAM_CUSTOM_FIELD] = team_id
+
+    payload = {"fields": fields}
+
+    url = f"{config.base_url}/rest/api/3/issue"
+    try:
+        response = httpx.post(
+            url,
+            json=payload,
+            auth=(config.email, config.api_token),
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            timeout=30.0,
+        )
+    except httpx.RequestError as exc:
+        raise JiraError(f"Could not reach Jira at {config.base_url}: {exc}") from exc
+
+    if response.status_code >= 400:
+        detail = _format_jira_error(response)
+        raise JiraError(detail, status_code=response.status_code)
+
+    data = response.json()
+    key = data.get("key")
+    if not key:
+        raise JiraError("Jira returned success but no issue key.")
+
+    return {
+        "key": key,
+        "id": str(data.get("id", "")),
+        "url": f"{config.base_url}/browse/{key}",
+    }
+
+
+def get_issue(config: JiraConfig, issue_ref: str) -> dict[str, str]:
+    """
+    Fetch a Jira issue by key or browse URL.
+
+    Returns key, summary, description (plain), issuetype, status, url.
+    """
+    key = _extract_issue_key(issue_ref)
+    if not key:
+        raise JiraError(
+            "Client ticket must look like PROJECT-123 or a Jira browse URL.",
+            status_code=400,
+        )
+
+    url = f"{config.base_url}/rest/api/3/issue/{key}"
+    try:
+        response = httpx.get(
+            url,
+            params={
+                "fields": "summary,description,issuetype,status,priority,labels",
+            },
+            auth=(config.email, config.api_token),
+            headers={"Accept": "application/json"},
+            timeout=30.0,
+        )
+    except httpx.RequestError as exc:
+        raise JiraError(f"Could not reach Jira at {config.base_url}: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise JiraError(_format_jira_error(response), status_code=response.status_code)
+
+    data = response.json()
+    fields = data.get("fields") or {}
+    issuetype = fields.get("issuetype") or {}
+    status = fields.get("status") or {}
+    priority = fields.get("priority") or {}
+    labels = fields.get("labels") or []
+    description = adf_to_plain_text(fields.get("description"))
+    if len(description) > 12000:
+        description = description[:12000].rstrip() + "\n… [truncated]"
+
+    return {
+        "key": str(data.get("key") or key),
+        "summary": str(fields.get("summary") or ""),
+        "description": description,
+        "issuetype": str(issuetype.get("name") or ""),
+        "status": str(status.get("name") or ""),
+        "priority": str(priority.get("name") or ""),
+        "labels": ", ".join(str(label) for label in labels),
+        "url": f"{config.base_url}/browse/{data.get('key') or key}",
+    }
+
+
+def _extract_issue_key(issue_ref: str) -> str | None:
+    raw = (issue_ref or "").strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9]+-\d+", raw):
+        return raw.upper()
+    match = re.search(r"\b([A-Za-z][A-Za-z0-9]+-\d+)\b", raw)
+    if match:
+        return match.group(1).upper()
+    return None
+
+
+def search_sample_issues(
+    config: JiraConfig, parent_key: str | None = None
+) -> list[dict[str, str]]:
+    """
+    Fetch recent sample issues under the configured (or overridden) parent epic.
+
+    Uses JQL ``parent = <key>`` (children of ATL-25692 use the parent field,
+    not a separate Epic Link custom field on this site).
+    """
+    resolved_parent = (parent_key or config.parent_key or "").strip()
+    if not resolved_parent:
+        raise JiraError("JIRA_PARENT_KEY is not configured.")
+
+    jql = f"parent = {resolved_parent} ORDER BY updated DESC"
+    fields = [
+        "summary",
+        "description",
+        "issuetype",
+        "labels",
+        "components",
+        "priority",
+    ]
+    auth = (config.email, config.api_token)
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+
+    # Prefer enhanced search (POST /search/jql); fall back to classic GET /search.
+    url = f"{config.base_url}/rest/api/3/search/jql"
+    try:
+        response = httpx.post(
+            url,
+            json={
+                "jql": jql,
+                "maxResults": config.sample_limit,
+                "fields": fields,
+            },
+            auth=auth,
+            headers=headers,
+            timeout=30.0,
+        )
+    except httpx.RequestError as exc:
+        raise JiraError(f"Could not reach Jira at {config.base_url}: {exc}") from exc
+
+    if response.status_code in {404, 405}:
+        url = f"{config.base_url}/rest/api/3/search"
+        try:
+            response = httpx.get(
+                url,
+                params={
+                    "jql": jql,
+                    "maxResults": config.sample_limit,
+                    "fields": ",".join(fields),
+                },
+                auth=auth,
+                headers={"Accept": "application/json"},
+                timeout=30.0,
+            )
+        except httpx.RequestError as exc:
+            raise JiraError(f"Could not reach Jira at {config.base_url}: {exc}") from exc
+
+    if response.status_code >= 400:
+        detail = _format_jira_error(response)
+        raise JiraError(detail, status_code=response.status_code)
+
+    data = response.json()
+    issues = data.get("issues") or []
+    samples: list[dict[str, str]] = []
+    for issue in issues:
+        fields = issue.get("fields") or {}
+        issuetype = fields.get("issuetype") or {}
+        labels = fields.get("labels") or []
+        components = fields.get("components") or []
+        priority = fields.get("priority") or {}
+        samples.append(
+            {
+                "key": str(issue.get("key") or ""),
+                "summary": str(fields.get("summary") or ""),
+                "description": adf_to_plain_text(fields.get("description")),
+                "issuetype": str(issuetype.get("name") or ""),
+                "labels": ", ".join(str(label) for label in labels),
+                "components": ", ".join(
+                    str(component.get("name") or "")
+                    for component in components
+                    if isinstance(component, dict)
+                ),
+                "priority": str(priority.get("name") or ""),
+            }
+        )
+    return samples
+
+
+def _format_jira_error(response: httpx.Response) -> str:
+    """Build a readable error message from a Jira error response."""
+    try:
+        body = response.json()
+    except ValueError:
+        text = (response.text or "").strip()
+        return f"Jira API error ({response.status_code}): {text or 'no details'}"
+
+    messages: list[str] = []
+    if isinstance(body.get("errorMessages"), list):
+        messages.extend(str(m) for m in body["errorMessages"])
+    errors = body.get("errors")
+    if isinstance(errors, dict):
+        for field, msg in errors.items():
+            messages.append(f"{field}: {msg}")
+    if not messages:
+        messages.append(str(body))
+    return f"Jira API error ({response.status_code}): " + "; ".join(messages)

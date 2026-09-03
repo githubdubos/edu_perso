@@ -1,0 +1,220 @@
+:root {
+  --bg-top: #e8f1f0;
+  --bg-bottom: #f7f4ef;
+  --ink: #1c2b2a;
+  --muted: #5a6b69;
+  --accent: #0f6e56;
+  --accent-hover: #0b5744;
+  --danger: #9b2c2c;
+  --success: #0f6e56;
+  --line: rgba(28, 43, 42, 0.14);
+  --surface: rgba(255, 255, 255, 0.72);
+  --focus: #1d7a9c;
+  --radius: 10px;
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-display: "IBM Plex Serif", Georgia, serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #cfe6e1 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #f0e6d8 0%, transparent 50%),
+    linear-gradient(165deg, var(--bg-top), var(--bg-bottom));
+  line-height: 1.5;
+}
+
+.page {
+  width: min(560px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: clamp(2.5rem, 8vh, 5rem) 0 3rem;
+}
+
+.brand-name {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+h1 {
+  margin: 0 0 0.6rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.15rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.lede {
+  margin: 0 0 1.75rem;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.form {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.field span {
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+input,
+textarea {
+  width: 100%;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  backdrop-filter: blur(6px);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 8rem;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgba(29, 122, 156, 0.18);
+}
+
+.actions {
+  margin-top: 0.25rem;
+}
+
+.actions-secondary {
+  margin-top: -0.25rem;
+}
+
+button {
+  appearance: none;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.8rem 1.25rem;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease, border-color 0.15s ease;
+}
+
+button.btn-secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid rgba(15, 110, 86, 0.45);
+}
+
+button.btn-secondary:hover:not(:disabled) {
+  background: rgba(15, 110, 86, 0.08);
+  color: var(--accent-hover);
+  border-color: rgba(15, 110, 86, 0.65);
+}
+
+button:hover:not(:disabled):not(.btn-secondary) {
+  background: var(--accent-hover);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.feedback {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.95rem;
+}
+
+.feedback.success {
+  border-color: rgba(15, 110, 86, 0.35);
+  color: var(--success);
+}
+
+.feedback.error {
+  border-color: rgba(155, 44, 44, 0.35);
+  color: var(--danger);
+}
+
+.feedback a {
+  color: inherit;
+  font-weight: 600;
+  text-underline-offset: 2px;
+}
+
+.feedback-title {
+  margin: 0;
+}
+
+.ticket-link-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+  margin-top: 0.75rem;
+}
+
+.ticket-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+  font-size: 0.85rem;
+  user-select: text;
+  cursor: text;
+}
+
+.ticket-link-row .copy-link-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 0.65rem 0.9rem;
+}
+
+.ticket-link-row .copy-link-btn.is-copied {
+  border-color: rgba(15, 110, 86, 0.75);
+  background: rgba(15, 110, 86, 0.12);
+}
+
+@media (max-width: 480px) {
+  button {
+    width: 100%;
+  }
+
+  .ticket-link-row {
+    flex-direction: column;
+  }
+}
