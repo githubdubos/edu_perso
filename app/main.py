@@ -12,8 +12,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .config import DEFAULT_JIRA_TEAM_NAME, load_jira_config, load_suggest_config
+from .confluence_client import resolve_confluence_page
 from .cursor_suggest import complete_bridge_suggest, draft_ticket_fields_cursor
-from .jira_client import JiraError, create_issue, search_sample_issues
+from .jira_client import JiraError, create_issue, get_issue, search_sample_issues
 from .llm_client import LlmError, draft_ticket_fields
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -24,7 +25,7 @@ _PARENT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]+-\d+$")
 app = FastAPI(
     title="Jira Ticket UI",
     description="Minimal UI to create Jira tickets with AI-assisted drafting",
-    version="1.2.0",
+    version="1.3.0",
 )
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -59,6 +60,16 @@ class SuggestTicketRequest(BaseModel):
     intent: str = Field(..., min_length=1, max_length=8000)
     parent_key: str | None = Field(default=None, max_length=32)
     team: str | None = Field(default=None, max_length=128)
+    wiki_page: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Confluence page title or ma-banking wiki URL describing the problem",
+    )
+    client_ticket: str | None = Field(
+        default=None,
+        max_length=512,
+        description="Client Jira issue key or browse URL",
+    )
 
 
 class SuggestTicketResponse(BaseModel):
@@ -68,6 +79,8 @@ class SuggestTicketResponse(BaseModel):
     samples_used: int = 0
     parent_key: str | None = None
     provider: str | None = None
+    wiki_title: str | None = None
+    client_ticket_key: str | None = None
     error: str | None = None
 
 
@@ -150,18 +163,40 @@ async def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
             ),
         )
 
+    parent_key = _resolve_parent_key(body.parent_key, jira.parent_key) or (
+        jira.parent_key or ""
+    )
+    team = (body.team or "").strip() or jira.team_name
+
     try:
-        samples = await asyncio.to_thread(search_sample_issues, jira)
+        samples = await asyncio.to_thread(search_sample_issues, jira, parent_key or None)
     except JiraError as exc:
         status = 502 if exc.status_code is None else min(exc.status_code, 599)
         if status < 400:
             status = 502
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
-    parent_key = _resolve_parent_key(body.parent_key, jira.parent_key) or (
-        jira.parent_key or ""
-    )
-    team = (body.team or "").strip() or jira.team_name
+    wiki_page = None
+    wiki_ref = (body.wiki_page or "").strip()
+    if wiki_ref:
+        try:
+            wiki_page = await asyncio.to_thread(resolve_confluence_page, jira, wiki_ref)
+        except JiraError as exc:
+            status = 502 if exc.status_code is None else min(exc.status_code, 599)
+            if status < 400:
+                status = 502
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+    client_ticket = None
+    client_ref = (body.client_ticket or "").strip()
+    if client_ref:
+        try:
+            client_ticket = await asyncio.to_thread(get_issue, jira, client_ref)
+        except JiraError as exc:
+            status = 502 if exc.status_code is None else min(exc.status_code, 599)
+            if status < 400:
+                status = 502
+            raise HTTPException(status_code=status, detail=str(exc)) from exc
 
     try:
         if suggest.provider == "cursor":
@@ -172,6 +207,8 @@ async def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
                 samples=samples,
                 parent_key=parent_key,
                 team=team,
+                wiki_page=wiki_page,
+                client_ticket=client_ticket,
             )
         else:
             draft = await asyncio.to_thread(
@@ -180,6 +217,8 @@ async def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
                 intent=intent,
                 samples=samples,
                 parent_key=parent_key,
+                wiki_page=wiki_page,
+                client_ticket=client_ticket,
             )
     except LlmError as exc:
         status = 502 if exc.status_code is None else min(exc.status_code, 599)
@@ -196,6 +235,8 @@ async def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
         samples_used=len(samples),
         parent_key=parent_key or None,
         provider=suggest.provider,
+        wiki_title=(wiki_page or {}).get("title"),
+        client_ticket_key=(client_ticket or {}).get("key"),
     )
 
 

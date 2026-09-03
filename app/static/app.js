@@ -1,6 +1,8 @@
 (() => {
   const form = document.getElementById("ticket-form");
   const intentInput = document.getElementById("intent");
+  const wikiPageInput = document.getElementById("wiki-page");
+  const clientTicketInput = document.getElementById("client-ticket");
   const titleInput = document.getElementById("title");
   const descriptionInput = document.getElementById("description");
   const parentKeyInput = document.getElementById("parent-key");
@@ -159,6 +161,8 @@
 
     const parentKey = parentKeyInput.value.trim();
     const team = teamInput.value.trim();
+    const wikiPage = wikiPageInput ? wikiPageInput.value.trim() : "";
+    const clientTicket = clientTicketInput ? clientTicketInput.value.trim() : "";
 
     try {
       const response = await fetch("/api/suggest", {
@@ -168,6 +172,8 @@
           intent,
           parent_key: parentKey || null,
           team: team || null,
+          wiki_page: wikiPage || null,
+          client_ticket: clientTicket || null,
         }),
       });
 
@@ -211,11 +217,21 @@
         suggestProvider === "cursor"
           ? " via Cursor"
           : ` via ${escapeHtml(suggestProvider)}`;
+      const sources = [];
+      if (payload.wiki_title) {
+        sources.push(`wiki “${escapeHtml(payload.wiki_title)}”`);
+      }
+      if (payload.client_ticket_key) {
+        sources.push(`client ${escapeHtml(payload.client_ticket_key)}`);
+      }
+      const sourceNote = sources.length
+        ? ` Sources: ${sources.join(", ")}.`
+        : "";
       showFeedback(
         "success",
         `Suggestion ready${via} (inspired by ${samples} sample ticket${
           samples === 1 ? "" : "s"
-        }${parent}). Review the fields, then create when ready.`
+        }${parent}).${sourceNote} Review the fields, then create when ready.`
       );
       titleInput.focus();
     } catch (err) {

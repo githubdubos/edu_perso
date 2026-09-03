@@ -198,17 +198,84 @@ def create_issue(
     }
 
 
-def search_sample_issues(config: JiraConfig) -> list[dict[str, str]]:
+def get_issue(config: JiraConfig, issue_ref: str) -> dict[str, str]:
     """
-    Fetch recent sample issues under the configured parent epic.
+    Fetch a Jira issue by key or browse URL.
 
-    Uses JQL ``parent = <JIRA_PARENT_KEY>`` (children of ATL-25692 use the
-    parent field, not a separate Epic Link custom field on this site).
+    Returns key, summary, description (plain), issuetype, status, url.
     """
-    if not config.parent_key:
+    key = _extract_issue_key(issue_ref)
+    if not key:
+        raise JiraError(
+            "Client ticket must look like PROJECT-123 or a Jira browse URL.",
+            status_code=400,
+        )
+
+    url = f"{config.base_url}/rest/api/3/issue/{key}"
+    try:
+        response = httpx.get(
+            url,
+            params={
+                "fields": "summary,description,issuetype,status,priority,labels",
+            },
+            auth=(config.email, config.api_token),
+            headers={"Accept": "application/json"},
+            timeout=30.0,
+        )
+    except httpx.RequestError as exc:
+        raise JiraError(f"Could not reach Jira at {config.base_url}: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise JiraError(_format_jira_error(response), status_code=response.status_code)
+
+    data = response.json()
+    fields = data.get("fields") or {}
+    issuetype = fields.get("issuetype") or {}
+    status = fields.get("status") or {}
+    priority = fields.get("priority") or {}
+    labels = fields.get("labels") or []
+    description = adf_to_plain_text(fields.get("description"))
+    if len(description) > 12000:
+        description = description[:12000].rstrip() + "\n… [truncated]"
+
+    return {
+        "key": str(data.get("key") or key),
+        "summary": str(fields.get("summary") or ""),
+        "description": description,
+        "issuetype": str(issuetype.get("name") or ""),
+        "status": str(status.get("name") or ""),
+        "priority": str(priority.get("name") or ""),
+        "labels": ", ".join(str(label) for label in labels),
+        "url": f"{config.base_url}/browse/{data.get('key') or key}",
+    }
+
+
+def _extract_issue_key(issue_ref: str) -> str | None:
+    raw = (issue_ref or "").strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9]+-\d+", raw):
+        return raw.upper()
+    match = re.search(r"\b([A-Za-z][A-Za-z0-9]+-\d+)\b", raw)
+    if match:
+        return match.group(1).upper()
+    return None
+
+
+def search_sample_issues(
+    config: JiraConfig, parent_key: str | None = None
+) -> list[dict[str, str]]:
+    """
+    Fetch recent sample issues under the configured (or overridden) parent epic.
+
+    Uses JQL ``parent = <key>`` (children of ATL-25692 use the parent field,
+    not a separate Epic Link custom field on this site).
+    """
+    resolved_parent = (parent_key or config.parent_key or "").strip()
+    if not resolved_parent:
         raise JiraError("JIRA_PARENT_KEY is not configured.")
 
-    jql = f"parent = {config.parent_key} ORDER BY updated DESC"
+    jql = f"parent = {resolved_parent} ORDER BY updated DESC"
     fields = [
         "summary",
         "description",

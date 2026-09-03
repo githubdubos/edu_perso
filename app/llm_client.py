@@ -24,14 +24,19 @@ def build_draft_messages(
     intent: str,
     samples: list[dict[str, str]],
     parent_key: str,
+    wiki_page: dict[str, str] | None = None,
+    client_ticket: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     """Build system + user messages for ticket drafting (any provider)."""
     system = (
         "You draft Jira tickets. Match the style, title prefixes, tone, and "
-        "level of technical detail of the sample tickets. Reply with ONLY a "
-        "JSON object with keys \"title\" and \"description\" (plain text, no "
-        "markdown fences). Do not invent unrelated products; stay faithful to "
-        "the user's intent while sounding like the samples."
+        "level of technical detail of the sample tickets. Use the wiki page "
+        "and client ticket (when provided) as the primary problem statement "
+        "and customer context. The user's intent/sketch steers focus and "
+        "priorities. Reply with ONLY a JSON object with keys \"title\" and "
+        "\"description\" (plain text, no markdown fences). Do not invent "
+        "unrelated products; stay faithful to the sources while sounding "
+        "like the sample tickets."
     )
     sample_blocks: list[str] = []
     for index, sample in enumerate(samples, start=1):
@@ -50,10 +55,47 @@ def build_draft_messages(
             )
         )
 
+    context_blocks: list[str] = []
+    if wiki_page:
+        context_blocks.append(
+            "\n".join(
+                [
+                    "### Wiki problem page",
+                    f"Title: {wiki_page.get('title') or ''}",
+                    f"URL: {wiki_page.get('url') or ''}",
+                    "Body:",
+                    (wiki_page.get("body") or "(empty)")[:10000],
+                ]
+            )
+        )
+    if client_ticket:
+        context_blocks.append(
+            "\n".join(
+                [
+                    "### Client ticket",
+                    f"Key: {client_ticket.get('key') or ''}",
+                    f"Type: {client_ticket.get('issuetype') or 'n/a'}",
+                    f"Status: {client_ticket.get('status') or 'n/a'}",
+                    f"Priority: {client_ticket.get('priority') or 'n/a'}",
+                    f"URL: {client_ticket.get('url') or ''}",
+                    f"Title: {client_ticket.get('summary') or ''}",
+                    "Description:",
+                    (client_ticket.get("description") or "(empty)")[:10000],
+                ]
+            )
+        )
+
     user = (
         f"Parent epic/key for context: {parent_key or 'none'}\n\n"
         f"User intent / sketch:\n{intent.strip()}\n\n"
-        "Reference tickets (match their patterns):\n\n"
+        + (
+            "Source material (use this to draft the ticket):\n\n"
+            + "\n\n".join(context_blocks)
+            + "\n\n"
+            if context_blocks
+            else ""
+        )
+        + "Reference tickets (match their patterns):\n\n"
         + ("\n\n".join(sample_blocks) if sample_blocks else "(no samples available)")
         + "\n\nReturn JSON: {\"title\": \"...\", \"description\": \"...\"}"
     )
@@ -66,6 +108,8 @@ def draft_ticket_fields(
     intent: str,
     samples: list[dict[str, str]],
     parent_key: str,
+    wiki_page: dict[str, str] | None = None,
+    client_ticket: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """
     Ask the LLM to draft title and description matching sample ticket style.
@@ -83,6 +127,8 @@ def draft_ticket_fields(
         intent=intent,
         samples=samples,
         parent_key=parent_key,
+        wiki_page=wiki_page,
+        client_ticket=client_ticket,
     )
 
     if config.provider == "gemini":

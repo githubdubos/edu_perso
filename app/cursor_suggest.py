@@ -24,11 +24,13 @@ def draft_ticket_fields_cursor(
     samples: list[dict[str, str]],
     parent_key: str,
     team: str = "",
+    wiki_page: dict[str, str] | None = None,
+    client_ticket: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """
     Ask Cursor to draft title/description.
 
-    Prefer the Cursor Python SDK (``CURSOR_API_KEY``). If only the file/webhook
+    Prefer Cloud Agents REST (``CURSOR_API_KEY``). If only the file/webhook
     bridge is configured, write a request and wait for a response file (or a
     completion posted by an Automation).
     """
@@ -45,6 +47,8 @@ def draft_ticket_fields_cursor(
         intent=intent,
         samples=samples,
         parent_key=parent_key,
+        wiki_page=wiki_page,
+        client_ticket=client_ticket,
     )
     prompt = (
         f"{system}\n\n{user}\n\n"
@@ -62,6 +66,8 @@ def draft_ticket_fields_cursor(
         parent_key=parent_key,
         team=team,
         prompt=prompt,
+        wiki_page=wiki_page,
+        client_ticket=client_ticket,
     )
 
 
@@ -209,6 +215,8 @@ def _draft_via_bridge(
     parent_key: str,
     team: str,
     prompt: str,
+    wiki_page: dict[str, str] | None = None,
+    client_ticket: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """
     File + optional webhook bridge for Cursor Automations.
@@ -228,6 +236,8 @@ def _draft_via_bridge(
         "parent_key": parent_key,
         "team": team,
         "samples": samples,
+        "wiki_page": wiki_page,
+        "client_ticket": client_ticket,
         "prompt": prompt,
         "response_path": str(response_path),
         "complete_url_hint": f"POST /api/suggest/{request_id}/complete",

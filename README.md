@@ -21,8 +21,8 @@ Small FastAPI web app to create Jira issues from a simple form, with optional AI
 
 ### Features
 
-- Intent sketch + title, description, **Parent issue**, and **Team** inputs (parent pre-filled with `ATL-25692`; team with `BC.RCOFit+LR`)
-- **Suggest with AI** — fetches recent child tickets under `JIRA_PARENT_KEY` (default `ATL-25692`), asks **Cursor** (default) to draft title/description in the same style, and fills the form (does **not** create the issue). Optional fallbacks: Gemini / OpenAI / Azure via `SUGGEST_PROVIDER`
+- Intent sketch + optional **Wiki page** (ma-banking Confluence title or URL) + optional **Client ticket** reference + title, description, **Parent issue**, and **Team** inputs (parent pre-filled with `ATL-25692`; team with `BC.RCOFit+LR`)
+- **Suggest with AI** — loads wiki + client ticket content when provided, fetches recent child tickets under the form parent (default `ATL-25692`), asks **Cursor** (default) to draft title/description, and fills the form (does **not** create the issue). Optional fallbacks: Gemini / OpenAI / Azure via `SUGGEST_PROVIDER`
 - **Create ticket** — validate → create via REST API v3 under the form parent key → show link → clear title/description on success
 - New issues are created in `JIRA_PROJECT_KEY` (default `ATL`) with `parent` from the form (fallback: `JIRA_PARENT_KEY`, default `ATL-25692`) — verified for ATL `Task` under that epic (legacy backlog children are often RAY Stories; samples still come from all children of the epic)
 - **Team** maps to Jira Cloud `customfield_10001` as the team **id** string (create-meta accepts it for ATL Task). The UI shows the friendly name; empty Team omits the field
@@ -82,10 +82,10 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 Default `SUGGEST_PROVIDER=cursor`:
 
-1. You enter an intent sketch (or reuse title/description as the sketch) and click **Suggest with AI**.
+1. You enter an intent sketch (required), optionally a wiki page (title or URL) and a client ticket key/URL, then click **Suggest with AI**.
 2. The UI shows **Asking Cursor…** while `POST /api/suggest` runs.
-3. The server loads recent issues with JQL `parent = <parent>` (form parent, else `JIRA_PARENT_KEY`).
-4. Those samples + your intent are sent to a **Cursor Cloud Agent** via `https://api.cursor.com` (no-repo run), using `CURSOR_API_KEY`. (The Python `cursor-sdk` local Bridge is avoided on Windows because of a known WinError 10038.)
+3. The server fetches the Confluence page body and/or client Jira issue when those fields are set, and loads recent issues with JQL `parent = <parent>` (form parent, else `JIRA_PARENT_KEY`).
+4. Those sources + your intent are sent to a **Cursor Cloud Agent** via `https://api.cursor.com` (no-repo run), using `CURSOR_API_KEY`. (The Python `cursor-sdk` local Bridge is avoided on Windows because of a known WinError 10038.)
 5. After the cloud run finishes (~30–90s), the agent returns JSON `{ "title", "description" }`. The form is filled. You still click **Create ticket** yourself.
 
 One-time Cursor setup:

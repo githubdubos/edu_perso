@@ -18,9 +18,9 @@
         <p class="brand-name">Jira Ticket UI</p>
         <h1>Create a ticket</h1>
         <p class="lede">
-          Sketch your intent, optionally ask Cursor to draft title and description
-          (inspired by tickets under the configured parent epic), then review and
-          create.
+          Sketch your intent, optionally point to a ma-banking wiki page and a
+          client ticket, ask Cursor to draft title and description (inspired by
+          tickets under the parent epic), then review and create.
         </p>
       </header>
 
@@ -34,6 +34,30 @@
             maxlength="8000"
             placeholder="What should this ticket cover? Rough notes are fine."
           ></textarea>
+        </label>
+
+        <label class="field">
+          <span>Wiki page (problem description)</span>
+          <input
+            id="wiki-page"
+            name="wiki_page"
+            type="text"
+            maxlength="2000"
+            autocomplete="off"
+            placeholder="Page title or https://ma-banking.atlassian.net/wiki/spaces/.../pages/..."
+          />
+        </label>
+
+        <label class="field">
+          <span>Client ticket reference</span>
+          <input
+            id="client-ticket"
+            name="client_ticket"
+            type="text"
+            maxlength="512"
+            autocomplete="off"
+            placeholder="e.g. ABC-123 or browse URL"
+          />
         </label>
 
         <div class="actions actions-secondary">
