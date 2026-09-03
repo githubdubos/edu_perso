@@ -141,16 +141,35 @@
   suggestBtn.addEventListener("click", async () => {
     clearFeedback();
 
+    const parentKey = parentKeyInput.value.trim();
+    const team = teamInput.value.trim();
+    const wikiPage = wikiPageInput ? wikiPageInput.value.trim() : "";
+    const clientTicket = clientTicketInput ? clientTicketInput.value.trim() : "";
+
     let intent = intentInput.value.trim();
     if (!intent) {
-      // Fall back to existing title/description as the sketch
+      // Fall back to existing title/description as the sketch.
       const title = titleInput.value.trim();
       const description = descriptionInput.value.trim();
       intent = [title, description].filter(Boolean).join("\n\n");
     }
+    if (!intent && (wikiPage || clientTicket)) {
+      // Keep Suggest usable when users provide only context sources.
+      const hints = [];
+      if (clientTicket) {
+        hints.push(`client ticket ${clientTicket}`);
+      }
+      if (wikiPage) {
+        hints.push(`wiki page ${wikiPage}`);
+      }
+      intent = `Draft a development Jira ticket based on ${hints.join(" and ")}.`;
+    }
 
     if (!intent) {
-      showFeedback("error", "Enter an intent sketch (or a title) before suggesting.");
+      showFeedback(
+        "error",
+        "Enter an intent sketch, title, wiki page, or client ticket before suggesting."
+      );
       intentInput.focus();
       return;
     }
@@ -158,11 +177,6 @@
     suggestBtn.disabled = true;
     submitBtn.disabled = true;
     suggestBtn.textContent = pendingSuggestLabel();
-
-    const parentKey = parentKeyInput.value.trim();
-    const team = teamInput.value.trim();
-    const wikiPage = wikiPageInput ? wikiPageInput.value.trim() : "";
-    const clientTicket = clientTicketInput ? clientTicketInput.value.trim() : "";
 
     try {
       const response = await fetch("/api/suggest", {
