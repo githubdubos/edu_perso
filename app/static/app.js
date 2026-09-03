@@ -184,10 +184,11 @@
           `Suggest failed (${response.status}).`
         );
         const hint =
-          suggestProvider === "cursor" && response.status === 503
-            ? " Set <code>CURSOR_API_KEY</code> in <code>.env</code> (Cursor Dashboard → Integrations), restart the server, and retry — or see README for the Automations bridge."
+          suggestProvider === "cursor" && (response.status === 503 || response.status === 502)
+            ? " Check <code>CURSOR_API_KEY</code>, network access to <code>api.cursor.com</code>, then retry."
             : "";
         showFeedback("error", escapeHtml(detail) + hint);
+        feedback.scrollIntoView({ behavior: "smooth", block: "nearest" });
         return;
       }
 

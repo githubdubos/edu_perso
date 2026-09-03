@@ -66,49 +66,139 @@ def draft_ticket_fields_cursor(
 
 
 def _draft_via_sdk(config: CursorSuggestConfig, *, prompt: str) -> dict[str, str]:
-    """One-shot Cursor agent run via cursor-sdk (local or cloud)."""
-    try:
-        from cursor_sdk import Agent, AgentOptions, CloudAgentOptions, LocalAgentOptions
-    except ImportError as exc:
-        raise LlmError(
-            "cursor-sdk is not installed. Run: pip install -r requirements.txt"
-        ) from exc
+    """
+    One-shot Cursor agent via Cloud Agents REST API.
 
-    cwd = str(Path(__file__).resolve().parent.parent)
-    options_kwargs: dict[str, Any] = {
-        "model": config.model,
-        "api_key": config.api_key,
+    The Python ``cursor-sdk`` Bridge crashes on native Windows (WinError 10038),
+    so Suggest uses ``https://api.cursor.com`` directly with the user API key.
+    A no-repo cloud agent is enough: samples are already in the prompt.
+    """
+    return _draft_via_cloud_agents_api(config, prompt=prompt)
+
+
+def _draft_via_cloud_agents_api(
+    config: CursorSuggestConfig, *, prompt: str
+) -> dict[str, str]:
+    """Create a no-repo cloud agent, wait for the run, parse JSON draft."""
+    auth = (config.api_key, "")
+    create_url = "https://api.cursor.com/v1/agents"
+    body: dict[str, Any] = {
+        "prompt": {"text": prompt},
+        "model": {"id": config.model or "composer-2.5"},
+        "name": "edu-perso-jira-suggest",
     }
 
-    if config.runtime == "cloud":
-        # No-repo cloud agent: drafting only, no checkout required.
-        options_kwargs["cloud"] = CloudAgentOptions(repos=[])
-    else:
-        # Local agent against this repo; disallow mutating tools.
-        options_kwargs["local"] = LocalAgentOptions(cwd=cwd)
-        # Drafting only — read-only tools; samples are already in the prompt.
-        options_kwargs["tools"] = ["read", "grep", "glob", "ls"]
-
     try:
-        result = Agent.prompt(prompt, AgentOptions(**options_kwargs))
-    except Exception as exc:  # noqa: BLE001 — map SDK errors to LlmError
-        message = str(getattr(exc, "message", None) or exc).strip()
+        # Create can take a while before headers return; allow a long read.
+        create_response = httpx.post(
+            create_url,
+            auth=auth,
+            json=body,
+            timeout=httpx.Timeout(10.0, read=120.0),
+        )
+    except httpx.HTTPError as exc:
         raise LlmError(
-            f"Cursor agent error: {message[:500] or exc.__class__.__name__}. "
-            "Check CURSOR_API_KEY and that the Cursor agent runtime can start."
+            f"Could not reach Cursor Cloud Agents API: {exc}. "
+            "Check network access to api.cursor.com and CURSOR_API_KEY."
         ) from exc
 
-    status = getattr(result, "status", None)
-    if status and status != "finished":
+    if create_response.status_code >= 400:
+        detail = create_response.text[:400].strip() or create_response.reason_phrase
         raise LlmError(
-            f"Cursor agent run ended with status '{status}'. "
-            "Retry Suggest, or check Cursor usage / dashboard for the run."
+            f"Cursor Cloud Agents API rejected create ({create_response.status_code}): "
+            f"{detail}"
         )
 
-    content = getattr(result, "result", None)
-    if not isinstance(content, str) or not content.strip():
-        raise LlmError("Cursor agent returned an empty message.")
-    return _parse_draft_json(content)
+    try:
+        payload = create_response.json()
+    except json.JSONDecodeError as exc:
+        raise LlmError("Cursor Cloud Agents API returned invalid JSON on create.") from exc
+
+    agent = payload.get("agent") if isinstance(payload, dict) else None
+    run = payload.get("run") if isinstance(payload, dict) else None
+    if not isinstance(agent, dict) or not isinstance(run, dict):
+        raise LlmError(
+            "Cursor Cloud Agents API create response missing agent/run objects."
+        )
+
+    agent_id = str(agent.get("id") or "").strip()
+    run_id = str(run.get("id") or "").strip()
+    if not agent_id or not run_id:
+        raise LlmError("Cursor Cloud Agents API create response missing agent/run id.")
+
+    deadline = time.monotonic() + max(30, config.timeout_seconds)
+    last_status = str(run.get("status") or "UNKNOWN")
+    result_text = ""
+
+    while time.monotonic() < deadline:
+        try:
+            run_response = httpx.get(
+                f"https://api.cursor.com/v1/agents/{agent_id}/runs/{run_id}",
+                auth=auth,
+                timeout=30.0,
+            )
+        except httpx.HTTPError as exc:
+            raise LlmError(f"Cursor run poll failed: {exc}") from exc
+
+        if run_response.status_code >= 400:
+            raise LlmError(
+                f"Cursor run poll error ({run_response.status_code}): "
+                f"{run_response.text[:300]}"
+            )
+
+        try:
+            run_payload = run_response.json()
+        except json.JSONDecodeError as exc:
+            raise LlmError("Cursor run poll returned invalid JSON.") from exc
+
+        last_status = str(run_payload.get("status") or last_status).upper()
+        if last_status in {"FINISHED", "ERROR", "CANCELLED", "EXPIRED"}:
+            raw_result = run_payload.get("result")
+            if isinstance(raw_result, str):
+                result_text = raw_result.strip()
+            break
+        time.sleep(2.0)
+    else:
+        raise LlmError(
+            f"Timed out waiting for Cursor cloud agent run (last status: {last_status}). "
+            f"See https://cursor.com/agents/{agent_id}"
+        )
+
+    if last_status != "FINISHED":
+        raise LlmError(
+            f"Cursor cloud agent run ended with status '{last_status}'. "
+            f"See https://cursor.com/agents/{agent_id}"
+        )
+
+    if not result_text:
+        # Fallback: conversation messages (v0) when run.result is empty.
+        try:
+            conversation = httpx.get(
+                f"https://api.cursor.com/v0/agents/{agent_id}/conversation",
+                auth=auth,
+                timeout=30.0,
+            )
+            if conversation.status_code < 400:
+                messages = conversation.json().get("messages") or []
+                for message in reversed(messages):
+                    if (
+                        isinstance(message, dict)
+                        and message.get("type") == "assistant_message"
+                        and isinstance(message.get("text"), str)
+                        and message["text"].strip()
+                    ):
+                        result_text = message["text"].strip()
+                        break
+        except (httpx.HTTPError, json.JSONDecodeError, TypeError, AttributeError):
+            pass
+
+    if not result_text:
+        raise LlmError(
+            "Cursor cloud agent finished but returned an empty result. "
+            f"See https://cursor.com/agents/{agent_id}"
+        )
+
+    return _parse_draft_json(result_text)
 
 
 def _draft_via_bridge(
