@@ -12,12 +12,27 @@
   /** Jira issue key shape, e.g. ATL-25692 or PROJ2-1 */
   const PARENT_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9]+-\d+$/;
 
+  let suggestProvider = "cursor";
+  const SUGGEST_IDLE_LABEL = "Suggest with AI";
+
+  function pendingSuggestLabel() {
+    if (suggestProvider === "cursor") {
+      return "Asking Cursor…";
+    }
+    return "Suggesting…";
+  }
+
   // Prefill Team (and Parent) from server env defaults when available.
   fetch("/api/health")
     .then((response) => (response.ok ? response.json() : null))
     .then((payload) => {
       if (!payload) {
         return;
+      }
+      if (payload.suggest_provider || payload.llm_provider) {
+        suggestProvider = String(
+          payload.suggest_provider || payload.llm_provider
+        ).toLowerCase();
       }
       if (payload.team_name && teamInput && !teamInput.dataset.userEdited) {
         teamInput.value = payload.team_name;
@@ -140,13 +155,20 @@
 
     suggestBtn.disabled = true;
     submitBtn.disabled = true;
-    suggestBtn.textContent = "Suggesting…";
+    suggestBtn.textContent = pendingSuggestLabel();
+
+    const parentKey = parentKeyInput.value.trim();
+    const team = teamInput.value.trim();
 
     try {
       const response = await fetch("/api/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intent }),
+        body: JSON.stringify({
+          intent,
+          parent_key: parentKey || null,
+          team: team || null,
+        }),
       });
 
       let payload = {};
@@ -157,10 +179,15 @@
       }
 
       if (!response.ok) {
-        showFeedback(
-          "error",
-          escapeHtml(detailFromPayload(payload, `Suggest failed (${response.status}).`))
+        const detail = detailFromPayload(
+          payload,
+          `Suggest failed (${response.status}).`
         );
+        const hint =
+          suggestProvider === "cursor" && response.status === 503
+            ? " Set <code>CURSOR_API_KEY</code> in <code>.env</code> (Cursor Dashboard → Integrations), restart the server, and retry — or see README for the Automations bridge."
+            : "";
+        showFeedback("error", escapeHtml(detail) + hint);
         return;
       }
 
@@ -171,13 +198,21 @@
         descriptionInput.value = payload.description;
       }
 
+      if (payload.provider) {
+        suggestProvider = String(payload.provider).toLowerCase();
+      }
+
       const samples = Number(payload.samples_used) || 0;
       const parent = payload.parent_key
         ? ` under ${escapeHtml(payload.parent_key)}`
         : "";
+      const via =
+        suggestProvider === "cursor"
+          ? " via Cursor"
+          : ` via ${escapeHtml(suggestProvider)}`;
       showFeedback(
         "success",
-        `Suggestion ready (inspired by ${samples} sample ticket${
+        `Suggestion ready${via} (inspired by ${samples} sample ticket${
           samples === 1 ? "" : "s"
         }${parent}). Review the fields, then create when ready.`
       );
@@ -190,7 +225,7 @@
     } finally {
       suggestBtn.disabled = false;
       submitBtn.disabled = false;
-      suggestBtn.textContent = "Suggest with AI";
+      suggestBtn.textContent = SUGGEST_IDLE_LABEL;
     }
   });
 

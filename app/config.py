@@ -14,6 +14,9 @@ load_dotenv()
 DEFAULT_JIRA_TEAM_NAME = "BC.RCOFit+LR"
 DEFAULT_JIRA_TEAM_ID = "7ed41a1b-0081-46cd-b045-228ee9e6d8b4-7"
 
+# Default Suggest provider: Cursor agent (SDK). Gemini/OpenAI remain optional.
+DEFAULT_SUGGEST_PROVIDER = "cursor"
+
 
 @dataclass(frozen=True)
 class JiraConfig:
@@ -100,6 +103,50 @@ class LlmConfig:
         ]
 
 
+@dataclass(frozen=True)
+class CursorSuggestConfig:
+    """Cursor agent settings for Suggest (SDK and/or Automation bridge)."""
+
+    api_key: str
+    model: str
+    runtime: str
+    webhook_url: str
+    timeout_seconds: int
+
+    @property
+    def is_complete(self) -> bool:
+        # SDK path (preferred) or webhook/file bridge without an API key.
+        return bool(self.api_key) or bool(self.webhook_url)
+
+    def missing_keys(self) -> list[str]:
+        if self.is_complete:
+            return []
+        return [
+            "CURSOR_API_KEY (preferred) or CURSOR_SUGGEST_WEBHOOK_URL "
+            "(Automations bridge)",
+        ]
+
+
+@dataclass(frozen=True)
+class SuggestConfig:
+    """Which backend powers the Suggest button."""
+
+    provider: str
+    cursor: CursorSuggestConfig
+    llm: LlmConfig
+
+    @property
+    def is_complete(self) -> bool:
+        if self.provider == "cursor":
+            return self.cursor.is_complete
+        return self.llm.is_complete
+
+    def missing_keys(self) -> list[str]:
+        if self.provider == "cursor":
+            return self.cursor.missing_keys()
+        return self.llm.missing_keys()
+
+
 def load_jira_config() -> JiraConfig:
     """Load Jira settings from environment (and optional .env file)."""
     raw_limit = (os.getenv("JIRA_SAMPLE_LIMIT") or "8").strip()
@@ -128,7 +175,7 @@ def load_jira_config() -> JiraConfig:
 
 def load_llm_config() -> LlmConfig:
     """
-    Load LLM settings.
+    Load classic LLM settings (Gemini / OpenAI / Azure).
 
     Preference order when LLM_PROVIDER is unset:
     1. Azure OpenAI if AZURE_OPENAI_API_KEY is set
@@ -178,3 +225,72 @@ def load_llm_config() -> LlmConfig:
         or "2024-08-01-preview",
         azure_deployment=(os.getenv("AZURE_OPENAI_DEPLOYMENT") or "").strip(),
     )
+
+
+def load_cursor_suggest_config() -> CursorSuggestConfig:
+    """Load Cursor SDK / Automations bridge settings for Suggest."""
+    raw_timeout = (os.getenv("CURSOR_SUGGEST_TIMEOUT_SECONDS") or "120").strip()
+    try:
+        timeout_seconds = max(15, min(600, int(raw_timeout)))
+    except ValueError:
+        timeout_seconds = 120
+
+    runtime = (os.getenv("CURSOR_RUNTIME") or "local").strip().lower()
+    if runtime not in {"local", "cloud"}:
+        runtime = "local"
+
+    return CursorSuggestConfig(
+        api_key=(os.getenv("CURSOR_API_KEY") or "").strip(),
+        model=(os.getenv("CURSOR_MODEL") or "composer-2.5").strip() or "composer-2.5",
+        runtime=runtime,
+        webhook_url=(os.getenv("CURSOR_SUGGEST_WEBHOOK_URL") or "").strip(),
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def load_suggest_config() -> SuggestConfig:
+    """
+    Resolve Suggest backend.
+
+    ``SUGGEST_PROVIDER`` wins when set (``cursor`` | ``gemini`` | ``openai`` |
+    ``azure``). Default is ``cursor``. Classic ``LLM_PROVIDER`` still selects
+    the Gemini/OpenAI/Azure credentials when Suggest uses those backends.
+    """
+    explicit = (os.getenv("SUGGEST_PROVIDER") or "").strip().lower()
+    llm = load_llm_config()
+    cursor = load_cursor_suggest_config()
+
+    if explicit in {"cursor", "gemini", "openai", "azure"}:
+        provider = explicit
+    else:
+        provider = DEFAULT_SUGGEST_PROVIDER
+
+    # When Suggest targets a classic LLM, reuse LLM_PROVIDER / keys.
+    if provider in {"gemini", "openai", "azure"} and llm.provider != provider:
+        # Force the requested provider; keys still come from env via load_llm_config
+        # fields — rebuild a shallow copy with the explicit provider name.
+        llm = LlmConfig(
+            provider=provider,
+            api_key=(
+                (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+                if provider == "gemini"
+                else (os.getenv("AZURE_OPENAI_API_KEY") or "").strip()
+                if provider == "azure"
+                else (os.getenv("OPENAI_API_KEY") or "").strip()
+            ),
+            model=(
+                (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip()
+                or "gemini-2.0-flash"
+                if provider == "gemini"
+                else (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
+                or "gpt-4o-mini"
+            ),
+            azure_endpoint=(os.getenv("AZURE_OPENAI_ENDPOINT") or "").rstrip("/"),
+            azure_api_version=(
+                os.getenv("AZURE_OPENAI_API_VERSION") or "2024-08-01-preview"
+            ).strip()
+            or "2024-08-01-preview",
+            azure_deployment=(os.getenv("AZURE_OPENAI_DEPLOYMENT") or "").strip(),
+        )
+
+    return SuggestConfig(provider=provider, cursor=cursor, llm=llm)

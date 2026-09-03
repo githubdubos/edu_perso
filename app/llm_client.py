@@ -19,25 +19,13 @@ class LlmError(Exception):
         self.status_code = status_code
 
 
-def draft_ticket_fields(
-    config: LlmConfig,
+def build_draft_messages(
     *,
     intent: str,
     samples: list[dict[str, str]],
     parent_key: str,
-) -> dict[str, str]:
-    """
-    Ask the LLM to draft title and description matching sample ticket style.
-
-    Returns dict with keys: title, description.
-    """
-    if not config.is_complete:
-        missing = ", ".join(config.missing_keys())
-        raise LlmError(
-            f"LLM is not configured. Set these environment variables "
-            f"(see .env.example): {missing}"
-        )
-
+) -> tuple[str, str]:
+    """Build system + user messages for ticket drafting (any provider)."""
     system = (
         "You draft Jira tickets. Match the style, title prefixes, tone, and "
         "level of technical detail of the sample tickets. Reply with ONLY a "
@@ -68,6 +56,33 @@ def draft_ticket_fields(
         "Reference tickets (match their patterns):\n\n"
         + ("\n\n".join(sample_blocks) if sample_blocks else "(no samples available)")
         + "\n\nReturn JSON: {\"title\": \"...\", \"description\": \"...\"}"
+    )
+    return system, user
+
+
+def draft_ticket_fields(
+    config: LlmConfig,
+    *,
+    intent: str,
+    samples: list[dict[str, str]],
+    parent_key: str,
+) -> dict[str, str]:
+    """
+    Ask the LLM to draft title and description matching sample ticket style.
+
+    Returns dict with keys: title, description.
+    """
+    if not config.is_complete:
+        missing = ", ".join(config.missing_keys())
+        raise LlmError(
+            f"LLM is not configured. Set these environment variables "
+            f"(see .env.example): {missing}"
+        )
+
+    system, user = build_draft_messages(
+        intent=intent,
+        samples=samples,
+        parent_key=parent_key,
     )
 
     if config.provider == "gemini":

@@ -23,3 +23,6 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Cursor Suggest bridge inbox (request/response JSON)
+.data/

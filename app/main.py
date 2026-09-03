@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -10,7 +11,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .config import DEFAULT_JIRA_TEAM_NAME, load_jira_config, load_llm_config
+from .config import DEFAULT_JIRA_TEAM_NAME, load_jira_config, load_suggest_config
+from .cursor_suggest import complete_bridge_suggest, draft_ticket_fields_cursor
 from .jira_client import JiraError, create_issue, search_sample_issues
 from .llm_client import LlmError, draft_ticket_fields
 
@@ -22,7 +24,7 @@ _PARENT_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]+-\d+$")
 app = FastAPI(
     title="Jira Ticket UI",
     description="Minimal UI to create Jira tickets with AI-assisted drafting",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -55,6 +57,8 @@ class CreateTicketResponse(BaseModel):
 
 class SuggestTicketRequest(BaseModel):
     intent: str = Field(..., min_length=1, max_length=8000)
+    parent_key: str | None = Field(default=None, max_length=32)
+    team: str | None = Field(default=None, max_length=128)
 
 
 class SuggestTicketResponse(BaseModel):
@@ -63,7 +67,14 @@ class SuggestTicketResponse(BaseModel):
     description: str | None = None
     samples_used: int = 0
     parent_key: str | None = None
+    provider: str | None = None
     error: str | None = None
+
+
+class SuggestCompleteRequest(BaseModel):
+    title: str = Field(default="", max_length=255)
+    description: str = Field(default="", max_length=32000)
+    error: str | None = Field(default=None, max_length=2000)
 
 
 @app.get("/")
@@ -74,9 +85,9 @@ def index() -> FileResponse:
 
 @app.get("/api/health")
 def health() -> dict[str, object]:
-    """Report whether required Jira/LLM env config is present (no secrets)."""
+    """Report whether required Jira/Suggest env config is present (no secrets)."""
     jira = load_jira_config()
-    llm = load_llm_config()
+    suggest = load_suggest_config()
     return {
         "ok": True,
         "jira_configured": jira.is_complete,
@@ -86,19 +97,32 @@ def health() -> dict[str, object]:
         "parent_key": jira.parent_key or None,
         "team_name": jira.team_name or DEFAULT_JIRA_TEAM_NAME,
         "team_id": jira.team_id or None,
-        "llm_configured": llm.is_complete,
-        "llm_provider": llm.provider or None,
-        "llm_missing": llm.missing_keys() if not llm.is_complete else [],
+        "suggest_configured": suggest.is_complete,
+        "suggest_provider": suggest.provider,
+        "suggest_missing": suggest.missing_keys() if not suggest.is_complete else [],
+        # Back-compat aliases for older UI checks
+        "llm_configured": suggest.is_complete,
+        "llm_provider": suggest.provider,
+        "llm_missing": suggest.missing_keys() if not suggest.is_complete else [],
+        "cursor_runtime": (
+            suggest.cursor.runtime if suggest.provider == "cursor" else None
+        ),
+        "cursor_sdk_ready": bool(
+            suggest.provider == "cursor" and suggest.cursor.api_key
+        ),
+        "cursor_bridge_ready": bool(
+            suggest.provider == "cursor" and suggest.cursor.webhook_url
+        ),
     }
 
 
 @app.post("/api/suggest", response_model=SuggestTicketResponse)
-def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
+async def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
     """
     Draft title/description from user intent, inspired by tickets under parent.
 
-    Does not create a Jira issue — the user must review and submit via
-    ``POST /api/tickets``.
+    Default provider is Cursor (SDK). Does not create a Jira issue — the user
+    must review and submit via ``POST /api/tickets``.
     """
     intent = body.intent.strip()
     if not intent:
@@ -115,37 +139,53 @@ def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
             ),
         )
 
-    llm = load_llm_config()
-    if not llm.is_complete:
-        missing = ", ".join(llm.missing_keys())
+    suggest = load_suggest_config()
+    if not suggest.is_complete:
+        missing = ", ".join(suggest.missing_keys())
         raise HTTPException(
             status_code=503,
             detail=(
-                f"LLM is not configured. Set these environment variables "
+                f"Suggest is not configured. Set these environment variables "
                 f"(see .env.example): {missing}"
             ),
         )
 
     try:
-        samples = search_sample_issues(jira)
+        samples = await asyncio.to_thread(search_sample_issues, jira)
     except JiraError as exc:
         status = 502 if exc.status_code is None else min(exc.status_code, 599)
         if status < 400:
             status = 502
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
+    parent_key = _resolve_parent_key(body.parent_key, jira.parent_key) or (
+        jira.parent_key or ""
+    )
+    team = (body.team or "").strip() or jira.team_name
+
     try:
-        draft = draft_ticket_fields(
-            llm,
-            intent=intent,
-            samples=samples,
-            parent_key=jira.parent_key,
-        )
+        if suggest.provider == "cursor":
+            draft = await asyncio.to_thread(
+                draft_ticket_fields_cursor,
+                suggest.cursor,
+                intent=intent,
+                samples=samples,
+                parent_key=parent_key,
+                team=team,
+            )
+        else:
+            draft = await asyncio.to_thread(
+                draft_ticket_fields,
+                suggest.llm,
+                intent=intent,
+                samples=samples,
+                parent_key=parent_key,
+            )
     except LlmError as exc:
         status = 502 if exc.status_code is None else min(exc.status_code, 599)
         if status < 400:
             status = 502
-        if exc.status_code == 401 or exc.status_code == 403:
+        if exc.status_code in {401, 403}:
             status = 503
         raise HTTPException(status_code=status, detail=str(exc)) from exc
 
@@ -154,8 +194,32 @@ def suggest_ticket(body: SuggestTicketRequest) -> SuggestTicketResponse:
         title=draft["title"],
         description=draft["description"],
         samples_used=len(samples),
-        parent_key=jira.parent_key or None,
+        parent_key=parent_key or None,
+        provider=suggest.provider,
     )
+
+
+@app.post("/api/suggest/{request_id}/complete")
+def complete_suggest(
+    request_id: str, body: SuggestCompleteRequest
+) -> dict[str, object]:
+    """
+    Complete a Cursor Automations / file-bridge suggest job.
+
+    Write ``title`` + ``description``, or ``error``, so a waiting
+    ``POST /api/suggest`` (bridge mode) can finish.
+    """
+    try:
+        path = complete_bridge_suggest(
+            request_id,
+            title=(body.title or "").strip(),
+            description=(body.description or "").strip(),
+            error=(body.error or "").strip() or None,
+        )
+    except LlmError as exc:
+        status = exc.status_code or 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return {"success": True, "path": str(path)}
 
 
 def _resolve_parent_key(requested: str | None, env_default: str) -> str | None:
