@@ -85,8 +85,8 @@ Default `SUGGEST_PROVIDER=cursor`:
 1. You enter an intent sketch (or reuse title/description as the sketch) and click **Suggest with AI**.
 2. The UI shows **Asking Cursor…** while `POST /api/suggest` runs.
 3. The server loads recent issues with JQL `parent = <parent>` (form parent, else `JIRA_PARENT_KEY`).
-4. Those samples + your intent are sent to the **Cursor agent** through the official Python SDK (`cursor-sdk` → `Agent.prompt`), using `CURSOR_API_KEY`.
-5. The agent returns JSON `{ "title", "description" }`. The form is filled. You still click **Create ticket** yourself.
+4. Those samples + your intent are sent to a **Cursor Cloud Agent** via `https://api.cursor.com` (no-repo run), using `CURSOR_API_KEY`. (The Python `cursor-sdk` local Bridge is avoided on Windows because of a known WinError 10038.)
+5. After the cloud run finishes (~30–90s), the agent returns JSON `{ "title", "description" }`. The form is filled. You still click **Create ticket** yourself.
 
 One-time Cursor setup:
 
