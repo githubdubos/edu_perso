@@ -5,9 +5,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv()
+# Always load the project .env (override empty shell vars so Suggest sees CURSOR_API_KEY).
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_PROJECT_ROOT / ".env", override=True)
 
 # Default Atlassian Team shown in the UI (name) and sent as customfield_10001 (id).
 # Verified from epic ATL-25692 on ma-banking.atlassian.net.
